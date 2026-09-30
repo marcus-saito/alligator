@@ -1,0 +1,1159 @@
+// Alligator — two-way live translation on the Soniox real-time WebSocket API.
+//
+// Audio path:  mic (+ meeting tab audio) → AudioWorklet (16 kHz PCM s16le) → Soniox
+// Text path:   Soniox token stream → Transcript (turns) → side-by-side panes or one stacked column
+
+const SONIOX_WS = "wss://stt-rt.soniox.com/transcribe-websocket";
+const MODEL = "stt-rt-v5";
+const KEEPALIVE_MS = 10_000; // docs: at least once every 20 s while no audio is sent
+const MAX_RECONNECTS = 3;
+
+// Soniox translation languages (docs: /translation/supported-languages), shown by autonym.
+const LANGS = {
+  af: ["Afrikaans", "Afrikaans"],
+  sq: ["Albanian", "Shqip"],
+  ar: ["Arabic", "العربية"],
+  az: ["Azerbaijani", "Azərbaycanca"],
+  eu: ["Basque", "Euskara"],
+  be: ["Belarusian", "Беларуская"],
+  bn: ["Bengali", "বাংলা"],
+  bs: ["Bosnian", "Bosanski"],
+  bg: ["Bulgarian", "Български"],
+  ca: ["Catalan", "Català"],
+  zh: ["Chinese", "中文"],
+  hr: ["Croatian", "Hrvatski"],
+  cs: ["Czech", "Čeština"],
+  da: ["Danish", "Dansk"],
+  nl: ["Dutch", "Nederlands"],
+  en: ["English", "English"],
+  et: ["Estonian", "Eesti"],
+  fi: ["Finnish", "Suomi"],
+  fr: ["French", "Français"],
+  gl: ["Galician", "Galego"],
+  de: ["German", "Deutsch"],
+  el: ["Greek", "Ελληνικά"],
+  gu: ["Gujarati", "ગુજરાતી"],
+  he: ["Hebrew", "עברית"],
+  hi: ["Hindi", "हिन्दी"],
+  hu: ["Hungarian", "Magyar"],
+  id: ["Indonesian", "Bahasa Indonesia"],
+  it: ["Italian", "Italiano"],
+  ja: ["Japanese", "日本語"],
+  kn: ["Kannada", "ಕನ್ನಡ"],
+  kk: ["Kazakh", "Қазақ тілі"],
+  ko: ["Korean", "한국어"],
+  lv: ["Latvian", "Latviešu"],
+  lt: ["Lithuanian", "Lietuvių"],
+  mk: ["Macedonian", "Македонски"],
+  ms: ["Malay", "Bahasa Melayu"],
+  ml: ["Malayalam", "മലയാളം"],
+  mr: ["Marathi", "मराठी"],
+  no: ["Norwegian", "Norsk"],
+  fa: ["Persian", "فارسی"],
+  pl: ["Polish", "Polski"],
+  pt: ["Portuguese", "Português"],
+  pa: ["Punjabi", "ਪੰਜਾਬੀ"],
+  ro: ["Romanian", "Română"],
+  ru: ["Russian", "Русский"],
+  sr: ["Serbian", "Српски"],
+  sk: ["Slovak", "Slovenčina"],
+  sl: ["Slovenian", "Slovenščina"],
+  es: ["Spanish", "Español"],
+  sw: ["Swahili", "Kiswahili"],
+  sv: ["Swedish", "Svenska"],
+  tl: ["Tagalog", "Tagalog"],
+  ta: ["Tamil", "தமிழ்"],
+  te: ["Telugu", "తెలుగు"],
+  th: ["Thai", "ไทย"],
+  tr: ["Turkish", "Türkçe"],
+  uk: ["Ukrainian", "Українська"],
+  ur: ["Urdu", "اردو"],
+  vi: ["Vietnamese", "Tiếng Việt"],
+  cy: ["Welsh", "Cymraeg"],
+};
+const RTL = new Set(["ar", "he", "fa", "ur"]);
+const autonym = (code) => LANGS[code]?.[1] ?? code.toUpperCase();
+
+const $ = (sel) => document.querySelector(sel);
+const body = document.body;
+const ui = {
+  langA: $("#lang-a"),
+  langB: $("#lang-b"),
+  swap: $("#swap"),
+  main: $("#main"),
+  stop: $("#stop"),
+  clock: $("#clock"),
+  status: $("#status"),
+  save: $("#save"),
+  toast: $("#toast"),
+  paneA: $("#pane-a"),
+  paneB: $("#pane-b"),
+  paneS: $("#pane-s"),
+  optsBtn: $("#opts-btn"),
+  opts: $("#opts"),
+  diarSwitch: $("#opt-diar"),
+  diarNote: $("#opt-diar-note"),
+};
+
+// ───────────────────────── Preferences ─────────────────────────
+
+const store = {
+  get(k, d) {
+    try {
+      return localStorage.getItem(k) ?? d;
+    } catch {
+      return d;
+    }
+  },
+  set(k, v) {
+    try {
+      localStorage.setItem(k, v);
+    } catch {}
+  },
+};
+
+const browserLang = (navigator.language || "en").slice(0, 2);
+const prefs = {
+  a: store.get("alligator.a", LANGS[browserLang] ? browserLang : "en"),
+  b: store.get("alligator.b", browserLang === "es" ? "en" : "es"),
+  source: store.get("alligator.source", "room"),
+  layout: store.get("alligator.layout", "split"), // "split" | "stacked"
+  theme: store.get("alligator.theme", "auto"), // "auto" | "light" | "dark"
+  diarize: store.get("alligator.diarize", "on") !== "off", // label who is speaking
+};
+if (prefs.a === prefs.b) prefs.b = prefs.a === "en" ? "es" : "en";
+
+function fillSelect(select, value) {
+  const opts = Object.entries(LANGS)
+    .sort((x, y) => x[1][0].localeCompare(y[1][0]))
+    .map(
+      ([code, [en, native]]) =>
+        new Option(en === native ? en : `${native} — ${en}`, code),
+    );
+  select.replaceChildren(...opts);
+  select.value = value;
+}
+
+function applyPrefs() {
+  ui.langA.value = prefs.a;
+  ui.langB.value = prefs.b;
+  for (const side of ["a", "b"]) {
+    const code = prefs[side];
+    document
+      .querySelectorAll(`[data-for="${side}"]`)
+      .forEach((el) => (el.textContent = autonym(code)));
+    const pane = side === "a" ? ui.paneA : ui.paneB;
+    pane.lang = code;
+    pane.dir = RTL.has(code) ? "rtl" : "ltr";
+  }
+  body.dataset.source = prefs.source;
+  document
+    .querySelectorAll(".source button")
+    .forEach((b) =>
+      b.setAttribute("aria-checked", String(b.dataset.source === prefs.source)),
+    );
+  body.dataset.layout = prefs.layout;
+  if (prefs.theme === "auto") delete document.documentElement.dataset.theme;
+  else document.documentElement.dataset.theme = prefs.theme;
+  renderOptions();
+  store.set("alligator.a", prefs.a);
+  store.set("alligator.b", prefs.b);
+  store.set("alligator.source", prefs.source);
+  store.set("alligator.layout", prefs.layout);
+  store.set("alligator.theme", prefs.theme);
+  store.set("alligator.diarize", prefs.diarize ? "on" : "off");
+  transcript.rerender();
+  setStatus();
+}
+
+fillSelect(ui.langA, prefs.a);
+fillSelect(ui.langB, prefs.b);
+
+ui.langA.addEventListener("change", () => pickLang("a", ui.langA.value));
+ui.langB.addEventListener("change", () => pickLang("b", ui.langB.value));
+ui.swap.addEventListener("click", () => {
+  [prefs.a, prefs.b] = [prefs.b, prefs.a];
+  applyPrefs();
+});
+document.querySelectorAll(".source button").forEach((b) =>
+  b.addEventListener("click", () => {
+    prefs.source = b.dataset.source;
+    applyPrefs();
+  }),
+);
+
+function pickLang(side, code) {
+  const other = side === "a" ? "b" : "a";
+  if (prefs[other] === code) prefs[other] = prefs[side]; // picking the other side's language swaps them
+  prefs[side] = code;
+  applyPrefs();
+}
+
+// ───────────────────────── Options ─────────────────────────
+
+function renderOptions() {
+  ui.opts.querySelectorAll(".seg").forEach((seg) => {
+    const value = prefs[seg.dataset.pref];
+    seg.querySelectorAll("button").forEach((b) => {
+      const on = b.dataset.value === value;
+      b.setAttribute("aria-checked", String(on));
+      b.tabIndex = on ? 0 : -1;
+    });
+  });
+  ui.diarSwitch.setAttribute("aria-checked", String(prefs.diarize));
+  // Diarization is part of the stream's setup, so a change mid-session waits
+  // for the next one.
+  const pending = session && session.diarize !== prefs.diarize;
+  ui.diarNote.textContent = pending ? "Takes effect next time you press play." : "";
+}
+
+// View and theme changes crossfade where the browser supports it.
+function smoothly(update) {
+  const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  if (!document.startViewTransition || reduce) return update();
+  document.startViewTransition(update);
+}
+
+function setPref(name, value) {
+  if (prefs[name] === value) return;
+  smoothly(() => {
+    prefs[name] = value;
+    applyPrefs();
+    if (name === "layout") {
+      // A pane that was hidden lost its scroll position; show the latest lines.
+      for (const pane of [ui.paneA, ui.paneB, ui.paneS]) {
+        const feed = pane.querySelector(".feed");
+        feed.scrollTop = feed.scrollHeight;
+      }
+    }
+  });
+}
+
+ui.opts.querySelectorAll(".seg").forEach((seg) => {
+  seg.addEventListener("click", (e) => {
+    const b = e.target.closest("button");
+    if (b) setPref(seg.dataset.pref, b.dataset.value);
+  });
+  // Arrow keys move between choices, as in a native radio group.
+  seg.addEventListener("keydown", (e) => {
+    const dir = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 }[e.key];
+    if (!dir) return;
+    e.preventDefault();
+    const buttons = [...seg.querySelectorAll("button")];
+    const i = buttons.findIndex((b) => b.dataset.value === prefs[seg.dataset.pref]);
+    const next = buttons[(i + dir + buttons.length) % buttons.length];
+    setPref(seg.dataset.pref, next.dataset.value);
+    next.focus();
+  });
+});
+
+ui.diarSwitch.addEventListener("click", () => {
+  prefs.diarize = !prefs.diarize;
+  applyPrefs();
+});
+
+const tip = ui.opts.querySelector(".tip");
+tip.querySelector(".tip-btn").addEventListener("click", (e) => {
+  e.stopPropagation();
+  tip.classList.toggle("open"); // tap to show on touch screens
+});
+
+function setOptionsOpen(open) {
+  ui.opts.hidden = !open;
+  ui.optsBtn.setAttribute("aria-expanded", String(open));
+  tip.classList.remove("open");
+  if (open) ui.opts.querySelector('.seg [aria-checked="true"]')?.focus();
+}
+ui.optsBtn.addEventListener("click", () => setOptionsOpen(ui.opts.hidden));
+document.addEventListener("pointerdown", (e) => {
+  if (!ui.opts.hidden && !e.target.closest("#opts, #opts-btn")) setOptionsOpen(false);
+});
+
+// ───────────────────────── Transcript ─────────────────────────
+// A "turn" is one speaker's utterance in one spoken language plus its
+// translation. Final tokens are committed; non-final tokens are drawn as a
+// lighter, provisional layer that is replaced on every server message.
+
+// Long monologues are split at a sentence end once the turn passes this length
+// (and its translation has caught up), so the newest line stays readable.
+const SPLIT_AFTER_CHARS = 240;
+const SENTENCE_END = /[.!?。！？…][”"'»)\]]*\s*$/u;
+// Muted hues that read on porcelain and graphite alike; cycled past six speakers.
+const SPEAKER_COLORS = [
+  "#5b82b8",
+  "#c0714f",
+  "#6e9a72",
+  "#9a73b0",
+  "#b8973d",
+  "#4a9c9a",
+];
+
+class Transcript {
+  constructor() {
+    this.turns = [];
+    this.committed = 0; // turns[0..committed) are final; the rest are drafts
+    this.open = -1; // index of the committed turn still accepting speech
+    this.pendingDirty = new Set();
+    this.epoch = 0; // bumps per Soniox stream; speaker numbers restart with each stream
+    this.names = new Map(); // "epoch:speaker" → name the user typed
+  }
+
+  newEpoch() {
+    this.epoch += 1;
+    this.open = -1;
+  }
+
+  newTurn(fields, pending, reuse) {
+    const turn = reuse.shift() ?? this.createTurn();
+    Object.assign(turn, {
+      ...fields,
+      epoch: this.epoch,
+      orig: "",
+      origP: "",
+      trans: "",
+      transP: "",
+      transLang: null,
+      at: new Date(),
+    });
+    this.turns.push(turn);
+    if (!pending) this.committed = this.turns.length;
+    return this.turns.length - 1;
+  }
+
+  createTurn() {
+    const mk = (pane) => {
+      const el = document.createElement("div");
+      el.className = "turn";
+      el.hidden = true;
+      const who = document.createElement("button");
+      who.type = "button";
+      who.className = "who";
+      who.title = "Rename speaker";
+      const line = document.createElement("p");
+      line.className = "line";
+      for (const cls of ["tag", "f", "p"]) {
+        const span = document.createElement("span");
+        span.className = cls;
+        line.append(span);
+      }
+      el.append(who, line);
+      pane.querySelector(".feed").append(el);
+      return el;
+    };
+    const mkStacked = () => {
+      const el = document.createElement("div");
+      el.className = "turn turn-s";
+      el.hidden = true;
+      const who = document.createElement("button");
+      who.type = "button";
+      who.className = "who";
+      who.title = "Rename speaker";
+      el.append(who);
+      for (const cls of ["src", "dst"]) {
+        const line = document.createElement("p");
+        line.className = `line ${cls}`;
+        for (const part of ["code", "f", "p"]) {
+          const span = document.createElement("span");
+          span.className = part;
+          line.append(span);
+        }
+        el.append(line);
+      }
+      ui.paneS.querySelector(".feed").append(el);
+      return el;
+    };
+    // One element per view: side-by-side pane A, pane B, and the stacked column.
+    return { els: [mk(ui.paneA), mk(ui.paneB), mkStacked()] };
+  }
+
+  apply(tok, pending, ctx, reuse) {
+    const { text } = tok;
+    if (text === "<end>" || text === "<fin>") {
+      if (!pending) ctx.open = -1;
+      return;
+    }
+    if (tok.translation_status === "translation") {
+      const t = this.translationTarget(tok);
+      if (!t) return;
+      t.transLang = tok.language;
+      if (pending) t.transP += text;
+      else t.trans += text;
+      this.touch(t, pending);
+      return;
+    }
+    const open = ctx.open >= 0 ? this.turns[ctx.open] : null;
+    const lang = tok.language || open?.lang || prefs.a;
+    const speaker = tok.speaker ?? open?.speaker ?? null;
+    if (
+      !open ||
+      open.lang !== lang ||
+      open.speaker !== speaker ||
+      this.readyToSplit(open, pending)
+    ) {
+      const status = tok.translation_status || "none";
+      ctx.open = this.newTurn({ lang, speaker, status }, pending, reuse);
+    }
+    const t = this.turns[ctx.open];
+    if (pending) t.origP += text;
+    else t.orig += text;
+    this.touch(t, pending);
+  }
+
+  readyToSplit(t, pending) {
+    const orig = t.orig + (pending ? t.origP : "");
+    if (orig.length < SPLIT_AFTER_CHARS || !SENTENCE_END.test(orig))
+      return false;
+    return (
+      t.status !== "original" ||
+      SENTENCE_END.test(t.trans + (pending ? t.transP : ""))
+    );
+  }
+
+  // Translation tokens trail the speech they translate, so by the time one
+  // arrives a newer turn (another speaker, same language) may already exist.
+  // Prefer the speaker's own turn when the token says who it is; otherwise hand
+  // it to the oldest recent turn whose translation hasn't finished a sentence.
+  translationTarget(tok) {
+    const recent = [];
+    for (let i = this.turns.length - 1; i >= 0 && recent.length < 4; i--) {
+      const t = this.turns[i];
+      if (t.epoch !== this.epoch) break;
+      if (t.lang === tok.source_language) recent.unshift(t);
+    }
+    if (!recent.length) return null;
+    const own =
+      tok.speaker != null
+        ? recent.filter((t) => t.speaker === tok.speaker)
+        : [];
+    const pool = own.length ? own : recent;
+    for (let i = 0; i < pool.length - 1; i++) {
+      const laterStarted = pool.slice(i + 1).some((n) => n.trans || n.transP);
+      if (!laterStarted && !SENTENCE_END.test(pool[i].trans + pool[i].transP))
+        return pool[i];
+    }
+    return pool.at(-1);
+  }
+
+  touch(t, pending) {
+    t.dirty = true;
+    if (pending) this.pendingDirty.add(t);
+  }
+
+  ingest(tokens) {
+    // Retire the previous provisional layer. Draft turns are kept for reuse so
+    // their DOM nodes don't flicker in and out between messages.
+    for (const t of this.pendingDirty) {
+      t.origP = "";
+      t.transP = "";
+      t.dirty = true;
+    }
+    this.pendingDirty.clear();
+    const reuse = this.turns.splice(this.committed);
+
+    const committedCtx = this;
+    for (const tok of tokens)
+      if (tok.is_final) this.apply(tok, false, committedCtx, reuse);
+
+    const draftCtx = { open: this.open };
+    for (const tok of tokens)
+      if (!tok.is_final) this.apply(tok, true, draftCtx, reuse);
+
+    for (const t of reuse) t.els.forEach((el) => el.remove());
+    this.render();
+  }
+
+  closeTurn() {
+    this.open = -1;
+  }
+
+  clearDrafts() {
+    for (const t of this.pendingDirty) {
+      t.origP = "";
+      t.transP = "";
+      t.dirty = true;
+    }
+    this.pendingDirty.clear();
+    for (const t of this.turns.splice(this.committed))
+      t.els.forEach((el) => el.remove());
+    this.open = -1;
+    this.render();
+  }
+
+  addBreak() {
+    if (!this.turns.length) return;
+    const label = new Date().toLocaleTimeString([], {
+      hour: "numeric",
+      minute: "2-digit",
+    });
+    for (const pane of [ui.paneA, ui.paneB]) {
+      const div = document.createElement("div");
+      div.className = "break";
+      div.textContent = label;
+      pane.querySelector(".feed").append(div);
+    }
+  }
+
+  rerender() {
+    this.turns.forEach((t) => (t.dirty = true));
+    this.render();
+  }
+
+  speakerKey(t) {
+    return t.speaker == null ? null : `${t.epoch}:${t.speaker}`;
+  }
+
+  speakerName(t) {
+    return this.names.get(this.speakerKey(t)) || `Speaker ${t.speaker}`;
+  }
+
+  // Inline rename: the label turns into a text field; Enter or blur saves,
+  // Escape cancels. The name applies to every turn by that speaker.
+  rename(key, labelEl) {
+    const turnEl = labelEl.closest(".turn");
+    const t = this.turns.find((x) => this.speakerKey(x) === key);
+    if (!t || turnEl.dataset.editing) return;
+    const input = document.createElement("input");
+    input.className = "who-edit";
+    input.value = this.names.get(key) ?? "";
+    input.placeholder = `Speaker ${t.speaker}`;
+    input.maxLength = 40;
+    input.setAttribute("aria-label", `Name for speaker ${t.speaker}`);
+    turnEl.dataset.editing = "";
+    labelEl.after(input);
+    input.focus();
+    let done = false;
+    const finish = (save) => {
+      if (done) return;
+      done = true;
+      if (save) {
+        const name = input.value.trim();
+        if (name) this.names.set(key, name);
+        else this.names.delete(key);
+        this.turns.forEach(
+          (x) => this.speakerKey(x) === key && (x.dirty = true),
+        );
+      }
+      input.remove();
+      delete turnEl.dataset.editing;
+      this.render();
+    };
+    input.addEventListener("keydown", (e) => {
+      e.stopPropagation();
+      if (e.key === "Enter") finish(true);
+      else if (e.key === "Escape") finish(false);
+    });
+    input.addEventListener("blur", () => finish(true));
+  }
+
+  render() {
+    const panes = [ui.paneA, ui.paneB];
+    const views = [ui.paneA, ui.paneB, ui.paneS];
+    const feeds = views.map((p) => p.querySelector(".feed"));
+    const stick = feeds.map((f) => f.scrollHeight - f.scrollTop - f.clientHeight < 160);
+
+    // A speaker label opens each run of turns by the same speaker. Recompute it
+    // for the tail too, since an earlier turn's speaker can still settle.
+    const tailFrom = Math.max(0, this.turns.length - 8);
+    this.turns.forEach((t, idx) => {
+      if (idx < tailFrom && !t.dirty) return;
+      const prev = this.turns[idx - 1];
+      const label =
+        t.speaker == null ||
+        (prev && prev.epoch === t.epoch && prev.speaker === t.speaker)
+          ? ""
+          : this.speakerName(t);
+      if (label !== t.label) {
+        t.label = label;
+        t.dirty = true;
+      }
+    });
+
+    for (const t of this.turns) {
+      if (!t.dirty) continue;
+      t.dirty = false;
+      const color =
+        t.speaker == null
+          ? ""
+          : SPEAKER_COLORS[
+              (parseInt(t.speaker, 10) - 1 || 0) % SPEAKER_COLORS.length
+            ];
+      panes.forEach((pane, i) => {
+        const el = t.els[i];
+        const [who, line] = el.children;
+        const paneLang = pane.lang;
+        const outsidePair =
+          t.status === "none" || (t.lang !== prefs.a && t.lang !== prefs.b);
+        let f,
+          p,
+          kind,
+          tag = "";
+        if (outsidePair) {
+          [f, p, kind, tag] = [
+            t.orig,
+            t.origP,
+            "spoken",
+            t.lang?.toUpperCase() ?? "",
+          ];
+        } else if (t.lang === paneLang) {
+          [f, p, kind] = [t.orig, t.origP, "spoken"];
+        } else {
+          [f, p, kind] = [t.trans, t.transP, "translated"];
+        }
+        if (!f) p = p.trimStart();
+        line.children[0].textContent = tag;
+        line.children[1].textContent = f.trimStart();
+        line.children[2].textContent = p;
+        who.textContent = t.label;
+        who.hidden = !t.label;
+        who.dataset.key = this.speakerKey(t) ?? "";
+        el.classList.remove("spoken", "translated");
+        el.classList.add(kind);
+        if (color) el.style.setProperty("--spk", color);
+        else el.style.removeProperty("--spk");
+        el.hidden = !(f.trim() || p.trim());
+      });
+      this.renderStacked(t, color);
+    }
+
+    views.forEach((pane, i) => {
+      pane.querySelector(".turn.recent")?.classList.remove("recent");
+      let last = feeds[i].lastElementChild;
+      while (last && (last.hidden || !last.classList.contains("turn")))
+        last = last.previousElementSibling;
+      last?.classList.add("recent");
+      pane.classList.toggle("has-content", Boolean(last));
+      if (stick[i]) feeds[i].scrollTop = feeds[i].scrollHeight;
+    });
+    ui.save.hidden = !(body.dataset.state === "idle" && this.committed > 0);
+  }
+
+  // Stacked view: what was said on top, its translation right underneath.
+  renderStacked(t, color) {
+    const el = t.els[2];
+    const [who, src, dst] = el.children;
+    const fill = (line, lang, f, p) => {
+      line.children[0].textContent = lang ? lang.toUpperCase() : "";
+      line.children[1].textContent = f.trimStart();
+      line.children[2].textContent = f ? p : p.trimStart();
+      line.lang = lang || "";
+      line.dir = RTL.has(lang) ? "rtl" : "ltr";
+      return Boolean(f.trim() || p.trim());
+    };
+    const hasSrc = fill(src, t.lang, t.orig, t.origP);
+    const other = t.lang === prefs.a ? prefs.b : prefs.a;
+    dst.hidden = !fill(dst, t.transLang || other, t.trans, t.transP);
+    who.textContent = t.label;
+    who.hidden = !t.label;
+    who.dataset.key = this.speakerKey(t) ?? "";
+    if (color) el.style.setProperty("--spk", color);
+    else el.style.removeProperty("--spk");
+    el.hidden = !hasSrc;
+  }
+
+  toText() {
+    const time = (d) =>
+      d.toLocaleTimeString([], {
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+      });
+    return this.turns
+      .slice(0, this.committed)
+      .map((t) => {
+        const who = t.speaker == null ? "" : `${this.speakerName(t)} · `;
+        const head = `[${time(t.at)}] ${who}`;
+        const lines = [`${head}${t.lang?.toUpperCase()}  ${t.orig.trim()}`];
+        if (t.trans.trim())
+          lines.push(
+            `${" ".repeat(head.length)}${t.transLang?.toUpperCase()}  ${t.trans.trim()}`,
+          );
+        return lines.join("\n");
+      })
+      .join("\n\n");
+  }
+}
+
+const transcript = new Transcript();
+
+// ───────────────────────── Audio capture ─────────────────────────
+
+async function openAudio(source, onFrame) {
+  const streams = [];
+  let display = null;
+
+  // Ask for the meeting tab first, while the click's user activation is fresh.
+  if (source === "meeting") {
+    display = await navigator.mediaDevices.getDisplayMedia({
+      video: true,
+      audio: {
+        echoCancellation: false,
+        noiseSuppression: false,
+        autoGainControl: false,
+      },
+      systemAudio: "include",
+      selfBrowserSurface: "exclude",
+      preferCurrentTab: false,
+    });
+    if (!display.getAudioTracks().length) {
+      display.getTracks().forEach((t) => t.stop());
+      throw new Error(
+        "No meeting audio was shared. Choose the meeting's tab and switch on “Share tab audio”.",
+      );
+    }
+    display.getVideoTracks().forEach((t) => (t.enabled = false));
+    streams.push(new MediaStream(display.getAudioTracks()));
+  }
+
+  const mic = await navigator.mediaDevices.getUserMedia({
+    audio: {
+      echoCancellation: true,
+      noiseSuppression: true,
+      autoGainControl: true,
+      channelCount: 1,
+    },
+  });
+  streams.push(mic);
+
+  const ctx = new AudioContext({ latencyHint: "interactive" });
+  await ctx.audioWorklet.addModule("pcm-worklet.js");
+  const worklet = new AudioWorkletNode(ctx, "pcm-worklet", {
+    channelCount: 1,
+    channelCountMode: "explicit",
+  });
+  for (const s of streams) ctx.createMediaStreamSource(s).connect(worklet); // summed into mono
+  const sink = ctx.createGain();
+  sink.gain.value = 0;
+  worklet.connect(sink).connect(ctx.destination); // keeps the graph pulling without playing anything
+  worklet.port.onmessage = (e) => onFrame(e.data);
+  await ctx.resume();
+
+  return {
+    display,
+    close() {
+      worklet.port.onmessage = null;
+      streams.forEach((s) => s.getTracks().forEach((t) => t.stop()));
+      display?.getTracks().forEach((t) => t.stop());
+      ctx.close().catch(() => {});
+    },
+  };
+}
+
+// ───────────────────────── Soniox session ─────────────────────────
+
+async function fetchTemporaryKey() {
+  const res = await fetch("/api/temporary-key", { method: "POST" });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || !data.api_key)
+    throw new Error(
+      data.error || "Couldn’t get a session key from the server.",
+    );
+  return data.api_key;
+}
+
+class Session {
+  constructor({ a, b, source, diarize }) {
+    Object.assign(this, { a, b, source, diarize });
+    this.ws = null;
+    this.audio = null;
+    this.paused = false;
+    this.stopping = false;
+    this.reconnects = 0;
+    this.keepalive = null;
+    this.onState = () => {};
+    this.onError = () => {};
+  }
+
+  async start() {
+    this.audio = await openAudio(this.source, (frame) => this.onFrame(frame));
+    this.audio.display?.getAudioTracks()[0].addEventListener("ended", () => {
+      if (!this.stopping) {
+        this.onError("Meeting audio sharing ended.");
+        this.stop();
+      }
+    });
+    await this.connect();
+  }
+
+  async connect() {
+    const apiKey = await fetchTemporaryKey();
+    transcript.newEpoch(); // a new stream numbers its speakers from 1 again
+    await new Promise((resolve, reject) => {
+      const ws = new WebSocket(SONIOX_WS);
+      ws.binaryType = "arraybuffer";
+      this.ws = ws;
+      ws.onopen = () => {
+        ws.send(
+          JSON.stringify({
+            api_key: apiKey,
+            model: MODEL,
+            audio_format: "pcm_s16le",
+            sample_rate: 16000,
+            num_channels: 1,
+            language_hints: [this.a, this.b],
+            enable_language_identification: true,
+            // Diarization labels who is speaking. Endpoint detection is left off
+            // because early finalization makes speaker attribution less accurate
+            // (per Soniox docs); turns break on speaker and language changes instead.
+            enable_speaker_diarization: this.diarize,
+            enable_endpoint_detection: !this.diarize,
+            translation: {
+              type: "two_way",
+              language_a: this.a,
+              language_b: this.b,
+            },
+          }),
+        );
+        this.onState(this.paused ? "paused" : "live");
+        if (this.paused) this.startKeepalive();
+        resolve();
+      };
+      ws.onmessage = (e) => this.onMessage(e.data);
+      ws.onerror = () => reject(new Error("Couldn’t reach Soniox."));
+      ws.onclose = () => this.onClose(ws);
+    });
+  }
+
+  onFrame({ pcm, level }) {
+    if (!this.paused) this.onLevel?.(level);
+    if (this.paused || this.stopping || this.ws?.readyState !== WebSocket.OPEN)
+      return;
+    this.ws.send(pcm);
+  }
+
+  onMessage(raw) {
+    let msg;
+    try {
+      msg = JSON.parse(raw);
+    } catch {
+      return;
+    }
+    if (msg.error_code) {
+      this.lastError = msg;
+      // Transient server-side conditions are retried by onClose; others surface now.
+      if (![408, 500, 503].includes(msg.error_code)) this.fatal = true;
+      if (this.fatal) this.onError(friendlyError(msg));
+      return;
+    }
+    if (msg.tokens?.length) transcript.ingest(msg.tokens);
+    if (msg.finished) this.finished?.();
+  }
+
+  async onClose(ws) {
+    if (ws !== this.ws) return;
+    this.stopKeepalive();
+    if (this.stopping) return this.finished?.();
+    transcript.clearDrafts();
+    if (this.fatal || this.reconnects >= MAX_RECONNECTS) {
+      if (!this.fatal) this.onError("The connection to Soniox was lost.");
+      return this.teardown();
+    }
+    // Stream dropped (network blip, server restart): reconnect, keeping the transcript.
+    this.reconnects += 1;
+    this.onState("connecting");
+    await new Promise((r) => setTimeout(r, 400 * this.reconnects));
+    try {
+      await this.connect();
+    } catch (err) {
+      this.onError(err.message);
+      this.teardown();
+    }
+  }
+
+  pause() {
+    if (this.paused) return;
+    this.paused = true;
+    // ~300 ms of silence, then finalize, so the sentence in flight settles cleanly.
+    if (this.ws?.readyState === WebSocket.OPEN) {
+      this.ws.send(new Int16Array(4800).buffer);
+      this.ws.send(JSON.stringify({ type: "finalize" }));
+    }
+    this.startKeepalive();
+    this.onState("paused");
+  }
+
+  resume() {
+    if (!this.paused) return;
+    this.paused = false;
+    this.stopKeepalive();
+    transcript.closeTurn();
+    this.onState("live");
+  }
+
+  startKeepalive() {
+    this.stopKeepalive();
+    this.keepalive = setInterval(() => {
+      if (this.ws?.readyState === WebSocket.OPEN)
+        this.ws.send(JSON.stringify({ type: "keepalive" }));
+    }, KEEPALIVE_MS);
+  }
+
+  stopKeepalive() {
+    clearInterval(this.keepalive);
+    this.keepalive = null;
+  }
+
+  async stop() {
+    if (this.stopping) return;
+    this.stopping = true;
+    this.onState("stopping");
+    this.stopKeepalive();
+    if (this.ws?.readyState === WebSocket.OPEN) {
+      await new Promise((resolve) => {
+        this.finished = resolve;
+        this.ws.send(""); // empty frame: end of audio; server flushes and sends `finished`
+        setTimeout(resolve, 4000);
+      });
+    }
+    this.teardown();
+  }
+
+  teardown() {
+    this.stopKeepalive();
+    this.stopping = true;
+    try {
+      this.ws?.close();
+    } catch {}
+    this.audio?.close();
+    transcript.clearDrafts();
+    this.onState("idle");
+  }
+}
+
+function friendlyError(msg) {
+  switch (msg.error_type) {
+    case "unauthenticated":
+      return "Soniox rejected the session key. Check SONIOX_API_KEY on the server.";
+    case "permission_denied":
+      return "This Soniox API key isn’t allowed to use real-time speech-to-text.";
+    case "organization_balance_exhausted":
+    case "organization_monthly_budget_exhausted":
+    case "project_monthly_budget_exhausted":
+      return "Your Soniox balance or monthly budget has run out.";
+    case "limit_exceeded":
+      return "Too many live sessions right now. Try again in a moment.";
+    default:
+      return msg.error_message || "Something went wrong.";
+  }
+}
+
+// ───────────────────────── Controller ─────────────────────────
+
+let session = null;
+let wakeLock = null;
+const clock = { ms: 0, since: 0, timer: null };
+
+function setState(state) {
+  body.dataset.state = state;
+  ui.main.setAttribute(
+    "aria-label",
+    state === "live" ? "Pause" : state === "paused" ? "Resume" : "Start",
+  );
+  ui.main.title = state === "live" ? "Pause (Space)" : "Start (Space)";
+
+  if (state === "live") {
+    clock.since = performance.now();
+    clock.timer ??= setInterval(tickClock, 250);
+    requestWakeLock();
+  } else {
+    if (clock.since) clock.ms += performance.now() - clock.since;
+    clock.since = 0;
+    clearInterval(clock.timer);
+    clock.timer = null;
+    body.style.setProperty("--lv", 0);
+  }
+  if (state === "idle") {
+    session = null;
+    wakeLock?.release().catch(() => {});
+    wakeLock = null;
+  }
+  tickClock();
+  setStatus();
+  renderOptions();
+  transcript.render();
+}
+
+function setStatus() {
+  const s = body.dataset.state;
+  const meeting = prefs.source === "meeting";
+  ui.status.textContent = {
+    idle: meeting
+      ? "Press play, then pick the meeting tab and share its audio"
+      : "Press play and speak naturally",
+    connecting: "Connecting…",
+    live: meeting ? "Listening to you and the meeting" : "Listening",
+    paused: "Paused",
+    stopping: "Finishing…",
+  }[s];
+}
+
+function tickClock() {
+  const ms = clock.ms + (clock.since ? performance.now() - clock.since : 0);
+  const s = Math.floor(ms / 1000);
+  const h = Math.floor(s / 3600);
+  const mm = String(Math.floor((s % 3600) / 60)).padStart(h ? 2 : 1, "0");
+  ui.clock.textContent = `${h ? h + ":" : ""}${mm}:${String(s % 60).padStart(2, "0")}`;
+}
+
+async function requestWakeLock() {
+  if (wakeLock || !("wakeLock" in navigator)) return;
+  try {
+    wakeLock = await navigator.wakeLock.request("screen");
+  } catch {}
+}
+
+async function start() {
+  if (!navigator.mediaDevices?.getUserMedia) {
+    return toast(
+      "This browser can’t capture audio here. Open Alligator over http://localhost or HTTPS.",
+    );
+  }
+  if (prefs.source === "meeting" && !navigator.mediaDevices.getDisplayMedia) {
+    return toast(
+      "Capturing meeting audio needs a desktop browser such as Chrome or Edge.",
+    );
+  }
+  clock.ms = 0;
+  transcript.addBreak();
+  transcript.closeTurn();
+  session = new Session(prefs);
+  session.onState = setState;
+  session.onError = toast;
+  let lv = 0;
+  session.onLevel = (level) => {
+    lv = Math.max(Math.sqrt(level), lv * 0.7);
+    body.style.setProperty("--lv", lv.toFixed(3));
+  };
+  setState("connecting");
+  try {
+    await session.start();
+  } catch (err) {
+    const denied = err.name === "NotAllowedError";
+    toast(
+      denied
+        ? "Permission was declined. Allow microphone (and screen audio for meetings) to continue."
+        : err.message,
+    );
+    session?.teardown();
+  }
+}
+
+ui.main.addEventListener("click", () => {
+  const s = body.dataset.state;
+  if (s === "idle") start();
+  else if (s === "live") session?.pause();
+  else if (s === "paused") session?.resume();
+});
+ui.stop.addEventListener("click", () => session?.stop());
+for (const pane of [ui.paneA, ui.paneB, ui.paneS]) {
+  pane.querySelector(".feed").addEventListener("click", (e) => {
+    const who = e.target.closest(".who");
+    if (who?.dataset.key) transcript.rename(who.dataset.key, who);
+  });
+}
+
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && !ui.opts.hidden) {
+    setOptionsOpen(false);
+    ui.optsBtn.focus();
+    return;
+  }
+  if (e.target.closest("select, input, textarea")) return;
+  if (e.code === "Space" && !e.target.closest("button")) {
+    e.preventDefault();
+    ui.main.click();
+  } else if (e.key === "Escape" && session) {
+    session.stop();
+  }
+});
+
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible" && body.dataset.state === "live")
+    requestWakeLock();
+});
+
+ui.save.addEventListener("click", () => {
+  const blob = new Blob([transcript.toText() + "\n"], {
+    type: "text/plain;charset=utf-8",
+  });
+  const a = document.createElement("a");
+  const stamp = new Date().toISOString().slice(0, 16).replace(/[:T]/g, "-");
+  a.href = URL.createObjectURL(blob);
+  a.download = `alligator-${prefs.a}-${prefs.b}-${stamp}.txt`;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+});
+
+let toastTimer;
+function toast(message) {
+  ui.toast.textContent = message;
+  ui.toast.hidden = false;
+  ui.toast.style.animation = "none";
+  void ui.toast.offsetWidth;
+  ui.toast.style.animation = "";
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => (ui.toast.hidden = true), 6000);
+}
+
+applyPrefs();
+
+// Open /#demo to replay a scripted three-person English ⇄ Spanish exchange
+// through the real token pipeline: non-final text streams in, speakers are
+// diarized, and each turn's last translated words arrive only after the next
+// speaker has started, as they do live. No key needed.
+if (location.hash === "#demo") {
+  prefs.a = "en";
+  prefs.b = "es";
+  applyPrefs();
+  const script = [
+    ["1", "en", "Thanks for making the time today. Shall we start with the delivery schedule?",
+      "es", "Gracias por sacar tiempo hoy. ¿Empezamos con el calendario de entregas?"],
+    ["2", "es", "Claro. El primer envío sale el lunes y el segundo a finales de mes.",
+      "en", "Of course. The first shipment leaves on Monday and the second at the end of the month."],
+    ["1", "en", "Perfect. Can we move the second one a week earlier?",
+      "es", "Perfecto. ¿Podemos adelantar el segundo una semana?"],
+    ["3", "en", "I checked this morning, and the warehouse has room for it.",
+      "es", "Lo revisé esta mañana y el almacén tiene espacio."],
+    ["2", "es", "Entonces lo confirmo hoy mismo.",
+      "en", "Then I'll confirm it today."],
+  ];
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  // Like a live stream, tokens only carry a speaker when diarization is on.
+  const said = (text, language, speaker, is_final) => ({
+    text,
+    language,
+    is_final,
+    translation_status: "original",
+    ...(prefs.diarize && { speaker }),
+  });
+  const meant = (text, language, source_language, is_final) =>
+    ({ text, language, source_language, is_final, translation_status: "translation" });
+  (async () => {
+    await sleep(900);
+    setState("live");
+    let carry = []; // previous turn's trailing translation, still in flight
+    for (const [spk, sl, text, tl, translation] of script) {
+      const words = text.split(/(?=\s)/);
+      const trans = translation.split(/(?=\s)/);
+      const cut = trans.length - 2;
+      for (let i = 0; i < words.length; i++) {
+        const shown = Math.floor((i / words.length) * cut * 0.8);
+        transcript.ingest([
+          ...carry,
+          ...(i ? [said(words[i - 1], sl, spk, true)] : []),
+          said(words[i], sl, spk, false),
+          ...trans.slice(0, shown).map((w) => meant(w, tl, sl, false)),
+        ]);
+        carry = [];
+        await sleep(170);
+      }
+      transcript.ingest([
+        said(words.at(-1), sl, spk, true),
+        ...trans.slice(0, cut).map((w) => meant(w, tl, sl, true)),
+      ]);
+      carry = trans.slice(cut).map((w) => meant(w, tl, sl, true));
+      await sleep(1400);
+    }
+    transcript.ingest(carry);
+    setState("idle");
+  })();
+}

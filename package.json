@@ -1,0 +1,11 @@
+{
+  "name": "alligator",
+  "version": "1.0.0",
+  "description": "Two-way live speech translation for rooms and online meetings, powered by Soniox.",
+  "type": "module",
+  "private": true,
+  "engines": { "node": ">=20.6" },
+  "scripts": {
+    "start": "node --env-file-if-exists=.env server.js"
+  }
+}
