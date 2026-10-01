@@ -2,7 +2,7 @@
 
 **Two-way live speech translation for conversations and online meetings.**
 
-**Use it now: [marcus-saito.github.io/alligator](https://marcus-saito.github.io/alligator/)**. There's nothing to download. Open the link in Chrome or Edge, press play, and paste your Soniox API key when asked; the app walks you through getting one. To keep Alligator in your Dock or Start menu, click **Install** in the address bar (on iPhone and iPad: Share → **Add to Home Screen**).
+**Use it now: [alligator.chat](https://alligator.chat)**. There's nothing to download. Open the link in Chrome or Edge, press play, and paste your Soniox API key when asked; the app walks you through getting one. To keep Alligator in your Dock or Start menu, click **Install** in the address bar (on iPhone and iPad: Share → **Add to Home Screen**).
 
 Alligator listens to a conversation, either people in the room or a meeting in another browser tab, and shows what each person says alongside its translation, live. It's built on the Soniox real-time API (`stt-rt-v5`, `translation.type = "two_way"`).
 
