@@ -1,6 +1,7 @@
 // Alligator — tiny zero-dependency server.
-// Serves the static app and mints short-lived Soniox keys so the long-lived
-// SONIOX_API_KEY never reaches the browser.
+// Serves the static app. If SONIOX_API_KEY is set, it also mints short-lived
+// Soniox keys so that key never reaches the browser; otherwise each person
+// adds their own key in the app's Options.
 import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
 import { extname, join, normalize } from "node:path";
@@ -55,6 +56,12 @@ function send(res, status, body, type = "application/json") {
 const server = createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host}`);
 
+  if (url.pathname === "/api/status") {
+    // Lets the page know whether this server holds a key, or whether the user
+    // should add their own in Options.
+    return send(res, 200, { serverKey: Boolean(API_KEY) });
+  }
+
   if (url.pathname === "/api/temporary-key") {
     if (req.method !== "POST")
       return send(res, 405, { error: "Method not allowed" });
@@ -93,7 +100,7 @@ server.on("error", (err) => {
 server.listen(PORT, () => {
   console.log(`Alligator is running at http://localhost:${PORT}`);
   if (!API_KEY)
-    console.warn(
-      "Warning: SONIOX_API_KEY is not set. Add it to .env and restart.",
+    console.log(
+      "No SONIOX_API_KEY on the server: each person adds their own key in Options.",
     );
 });

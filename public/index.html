@@ -147,6 +147,14 @@
               <span aria-hidden="true"></span>
             </button>
           </div>
+
+          <div class="opt opt-row">
+            <div class="opt-text">
+              <p class="opt-label opt-label-inline">Soniox API key</p>
+              <p class="opt-note opt-note-key" id="opt-key-note">Not added yet</p>
+            </div>
+            <button class="pill-btn" id="opt-key" type="button">Add</button>
+          </div>
         </div>
       </div>
     </header>
@@ -221,6 +229,60 @@
     </main>
 
     <button class="save" id="save" type="button" hidden>Save transcript</button>
+    <dialog class="sheet" id="key-sheet" aria-labelledby="key-title">
+      <form id="key-form" novalidate>
+        <h2 class="sheet-title" id="key-title">Your Soniox API key</h2>
+        <p class="sheet-lead" id="key-lead">
+          Alligator uses Soniox to hear and translate speech. Paste your API key to connect your
+          Soniox account.
+        </p>
+
+        <div class="field">
+          <input
+            id="key-input"
+            type="password"
+            autocomplete="off"
+            autocapitalize="off"
+            spellcheck="false"
+            placeholder="Paste your key here"
+            aria-label="Soniox API key"
+            aria-describedby="key-status"
+          />
+          <button type="button" class="field-btn" id="key-show" aria-pressed="false">Show</button>
+        </div>
+        <p class="key-status" id="key-status" role="status"></p>
+
+        <details class="howto" id="key-howto">
+          <summary>How do I get a key?</summary>
+          <ol>
+            <li>
+              Go to
+              <a href="https://console.soniox.com/signup" target="_blank" rel="noopener noreferrer">console.soniox.com</a>
+              and create an account, or sign in.
+            </li>
+            <li>Open your project (new accounts start with <b>My First Project</b>) and choose <b>API keys</b>.</li>
+            <li>Click <b>Create API key</b>, name it something like “Alligator”, and turn on <b>Full access</b>.</li>
+            <li>Copy the key and paste it above. Soniox shows the full key only once.</li>
+          </ol>
+          <p>
+            Soniox bills your account for the time Alligator is listening, including while paused. You can
+            see your usage and set a monthly budget in the Soniox Console.
+          </p>
+        </details>
+
+        <p class="sheet-fine">
+          Your key is saved only in this browser, on this device. Alligator sends it to Soniox and nowhere else.
+        </p>
+
+        <div class="sheet-actions">
+          <button type="button" class="btn btn-quiet" id="key-remove">Remove key</button>
+          <span class="spacer"></span>
+          <button type="button" class="btn btn-ghost" id="key-cancel">Cancel</button>
+          <button type="submit" class="btn btn-solid" id="key-save">Save</button>
+        </div>
+      </form>
+    </dialog>
+
     <div class="toast" id="toast" role="alert" hidden></div>
 
     <script type="module" src="app.js"></script>

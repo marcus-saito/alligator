@@ -15,13 +15,17 @@ There are two views, both available from **Options**:
 Requires Node 20.6+. There are no dependencies.
 
 ```bash
-cp .env.example .env        # then paste your key from console.soniox.com
 npm start                   # → http://localhost:5173
 ```
 
-To preview the UI without a key, open `http://localhost:5173/#demo`. It replays a short three-person English/Spanish conversation.
+Open the page, press play, and paste your Soniox API key when asked. It's also under **Options → Soniox API key**, which explains how to get one. To preview the UI without a key, open `http://localhost:5173/#demo`. It replays a short three-person English/Spanish conversation.
 
-The API key needs the **Temporary API keys** permission and the real-time speech-to-text permission. The server mints a 60-second, single-use temporary key for each stream, so your real key never reaches the browser.
+### Where the API key lives
+
+- **Each person's own key (default).** The key is saved in that browser only (`localStorage`). For each session, the browser trades it with Soniox for a 60-second, single-use key and streams with that. If the key lacks the **Temporary API keys** permission, the browser streams with the key itself. Either way, the key goes only to Soniox.
+- **One key on the server (optional).** Set `SONIOX_API_KEY` in `.env` (see `.env.example`) when you host Alligator for people who shouldn't need their own key. The server then mints the short-lived keys, and its key never reaches the browser. A key someone adds in Options takes priority over the server's.
+
+Because the browser can talk to Soniox directly, `public/` also works as a plain static website, with no Node server at all.
 
 ## Use
 
@@ -32,7 +36,7 @@ The API key needs the **Temporary API keys** permission and the real-time speech
 | ▶ / ❚❚                       | Start, pause and resume. **Space** does the same.                        |
 | ■                            | End the session. **Esc** does the same.                                  |
 | Speaker label                | Click to rename that speaker everywhere. **Enter** saves, **Esc** cancels. |
-| Options (sliders icon)       | **View:** Side by side or Stacked. **Appearance:** Auto (follows your system), Light or Dark. **Tell speakers apart:** turns speaker diarization on or off; the ⓘ explains it in plain language. Your choices are remembered in this browser. |
+| Options (sliders icon)       | **View:** Side by side or Stacked. **Appearance:** Auto (follows your system), Light or Dark. **Tell speakers apart:** turns speaker diarization on or off; the ⓘ explains it in plain language. **Soniox API key:** add, change or remove your key, with step-by-step help. Your choices are remembered in this browser. |
 | Save transcript              | Appears once a session ends and downloads a `.txt` file with timestamps and speaker names. |
 
 **In the room:** only the microphone is used. On a phone or tablet in portrait, the top pane turns 180° so you can lay the device flat between two people, each reading their own half.

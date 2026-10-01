@@ -93,6 +93,18 @@ const ui = {
   opts: $("#opts"),
   diarSwitch: $("#opt-diar"),
   diarNote: $("#opt-diar-note"),
+  keyBtn: $("#opt-key"),
+  keyNote: $("#opt-key-note"),
+  keySheet: $("#key-sheet"),
+  keyForm: $("#key-form"),
+  keyInput: $("#key-input"),
+  keyShow: $("#key-show"),
+  keyStatus: $("#key-status"),
+  keyLead: $("#key-lead"),
+  keyHowto: $("#key-howto"),
+  keyRemove: $("#key-remove"),
+  keyCancel: $("#key-cancel"),
+  keySave: $("#key-save"),
 };
 
 // ───────────────────────── Preferences ─────────────────────────
@@ -108,6 +120,11 @@ const store = {
   set(k, v) {
     try {
       localStorage.setItem(k, v);
+    } catch {}
+  },
+  remove(k) {
+    try {
+      localStorage.removeItem(k);
     } catch {}
   },
 };
@@ -740,15 +757,156 @@ async function openAudio(source, onFrame) {
 
 // ───────────────────────── Soniox session ─────────────────────────
 
-async function fetchTemporaryKey() {
-  const res = await fetch("/api/temporary-key", { method: "POST" });
+// Where a stream's key comes from, in order:
+//   1. The user's own Soniox key (Options → Soniox API key), kept in this
+//      browser. The browser trades it with Soniox for a 60-second, single-use
+//      key, so the long-lived key is never sent over the stream itself.
+//   2. The key configured on the server that serves Alligator, if any
+//      (SONIOX_API_KEY), via /api/temporary-key.
+const SONIOX_API = "https://api.soniox.com/v1";
+const KEY_PREF = "alligator.apiKey";
+let serverHasKey = false;
+
+class KeyError extends Error {
+  constructor(message, kind) {
+    super(message);
+    this.kind = kind; // "missing" | "invalid" | "network"
+  }
+}
+
+async function mintTemporaryKey(userKey) {
+  let res;
+  try {
+    res = await fetch(`${SONIOX_API}/auth/temporary-api-key`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${userKey}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ usage_type: "transcribe_websocket", expires_in_seconds: 60, single_use: true }),
+    });
+  } catch {
+    throw new KeyError("Couldn’t reach Soniox. Check your internet connection.", "network");
+  }
   const data = await res.json().catch(() => ({}));
-  if (!res.ok || !data.api_key)
-    throw new Error(
-      data.error || "Couldn’t get a session key from the server.",
-    );
+  if (res.ok && data.api_key) return { key: data.api_key, direct: false };
+  // 403: the key is real but lacks the "Temporary API keys" permission. It's
+  // the user's own key on their own device, so stream with it directly.
+  if (res.status === 403) return { key: userKey, direct: true };
+  if (res.status === 401) {
+    throw new KeyError("Soniox didn’t accept your API key. Check it in Options.", "invalid");
+  }
+  throw new KeyError(data.message || data.error_message || `Soniox returned an error (${res.status}).`, "network");
+}
+
+async function getStreamKey() {
+  const userKey = store.get(KEY_PREF, "");
+  if (userKey) return (await mintTemporaryKey(userKey)).key;
+  if (!serverHasKey) throw new KeyError("Add your Soniox API key to start translating.", "missing");
+  let res;
+  try {
+    res = await fetch("/api/temporary-key", { method: "POST" });
+  } catch {
+    throw new KeyError("Couldn’t reach the Alligator server.", "network");
+  }
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || !data.api_key) throw new KeyError(data.error || "Couldn’t get a session key from the server.", "network");
   return data.api_key;
 }
+
+const hasAnyKey = () => Boolean(store.get(KEY_PREF, "")) || serverHasKey;
+
+// When Alligator is served by server.js, ask whether it holds a key. On a
+// static host this request simply fails and the user brings their own key.
+fetch("/api/status")
+  .then((r) => (r.ok ? r.json() : {}))
+  .then((d) => (serverHasKey = Boolean(d.serverKey)))
+  .catch(() => {})
+  .finally(renderKeyOption);
+
+function renderKeyOption() {
+  const key = store.get(KEY_PREF, "");
+  ui.keyBtn.textContent = key ? "Change" : "Add";
+  ui.keyNote.textContent = key
+    ? `Saved · ends in ${key.slice(-4)}`
+    : serverHasKey
+      ? "Using the key set up on this server"
+      : "Not added yet";
+}
+
+// ── Key dialog ──
+
+function openKeySheet(reason = "") {
+  setOptionsOpen(false);
+  const saved = store.get(KEY_PREF, "");
+  ui.keyInput.value = "";
+  ui.keyInput.placeholder = saved ? `Current key ends in ${saved.slice(-4)}` : "Paste your key here";
+  ui.keyInput.type = "password";
+  ui.keyShow.textContent = "Show";
+  ui.keyShow.setAttribute("aria-pressed", "false");
+  ui.keyLead.textContent =
+    reason ||
+    "Alligator uses Soniox to hear and translate speech. Paste your API key to connect your Soniox account.";
+  ui.keyHowto.open = !saved; // first time: show the steps right away
+  ui.keyRemove.hidden = !saved;
+  setKeyStatus("");
+  ui.keySave.disabled = false;
+  ui.keySheet.showModal();
+  ui.keyInput.focus();
+}
+
+function setKeyStatus(text, tone = "") {
+  ui.keyStatus.textContent = text;
+  ui.keyStatus.dataset.tone = tone;
+}
+
+ui.keyBtn.addEventListener("click", () => openKeySheet());
+ui.keyCancel.addEventListener("click", () => ui.keySheet.close());
+ui.keyShow.addEventListener("click", () => {
+  const show = ui.keyInput.type === "password";
+  ui.keyInput.type = show ? "text" : "password";
+  ui.keyShow.textContent = show ? "Hide" : "Show";
+  ui.keyShow.setAttribute("aria-pressed", String(show));
+  ui.keyInput.focus();
+});
+ui.keyRemove.addEventListener("click", () => {
+  store.remove(KEY_PREF);
+  renderKeyOption();
+  ui.keySheet.close();
+  toast("Your Soniox API key was removed from this device.");
+});
+// Click on the dimmed backdrop closes the dialog.
+ui.keySheet.addEventListener("click", (e) => {
+  if (e.target === ui.keySheet) ui.keySheet.close();
+});
+
+ui.keyForm.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const key = ui.keyInput.value.trim().replace(/^Bearer\s+/i, "");
+  if (!key) {
+    setKeyStatus("Paste your key first.", "error");
+    ui.keyInput.focus();
+    return;
+  }
+  ui.keySave.disabled = true;
+  setKeyStatus("Checking with Soniox…");
+  let note = "Key saved. You’re ready to go.";
+  try {
+    await mintTemporaryKey(key);
+  } catch (err) {
+    if (err.kind === "invalid") {
+      ui.keySave.disabled = false;
+      setKeyStatus("Soniox didn’t accept this key. Make sure you copied all of it.", "error");
+      ui.keyInput.select();
+      return;
+    }
+    note = "Key saved. Soniox couldn’t be reached to check it, so it will be checked when you press play.";
+  }
+  store.set(KEY_PREF, key);
+  renderKeyOption();
+  setKeyStatus("Connected", "ok");
+  setTimeout(() => {
+    ui.keySheet.close();
+    toast(note);
+  }, 450);
+});
 
 class Session {
   constructor({ a, b, source, diarize }) {
@@ -775,7 +933,7 @@ class Session {
   }
 
   async connect() {
-    const apiKey = await fetchTemporaryKey();
+    const apiKey = await getStreamKey();
     transcript.newEpoch(); // a new stream numbers its speakers from 1 again
     await new Promise((resolve, reject) => {
       const ws = new WebSocket(SONIOX_WS);
@@ -922,7 +1080,7 @@ class Session {
 function friendlyError(msg) {
   switch (msg.error_type) {
     case "unauthenticated":
-      return "Soniox rejected the session key. Check SONIOX_API_KEY on the server.";
+      return "Soniox didn’t accept the API key. Check it in Options.";
     case "permission_denied":
       return "This Soniox API key isn’t allowed to use real-time speech-to-text.";
     case "organization_balance_exhausted":
@@ -1012,6 +1170,9 @@ async function start() {
       "Capturing meeting audio needs a desktop browser such as Chrome or Edge.",
     );
   }
+  if (!hasAnyKey()) {
+    return openKeySheet("Add your Soniox API key to start translating. It takes about a minute.");
+  }
   clock.ms = 0;
   transcript.addBreak();
   transcript.closeTurn();
@@ -1027,6 +1188,10 @@ async function start() {
   try {
     await session.start();
   } catch (err) {
+    if (err instanceof KeyError && err.kind !== "network") {
+      session?.teardown();
+      return openKeySheet(err.message);
+    }
     const denied = err.name === "NotAllowedError";
     toast(
       denied
@@ -1052,6 +1217,7 @@ for (const pane of [ui.paneA, ui.paneB, ui.paneS]) {
 }
 
 document.addEventListener("keydown", (e) => {
+  if (ui.keySheet.open) return; // the dialog handles its own keys (Esc closes it)
   if (e.key === "Escape" && !ui.opts.hidden) {
     setOptionsOpen(false);
     ui.optsBtn.focus();
