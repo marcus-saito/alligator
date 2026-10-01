@@ -1,31 +1,39 @@
 # Alligator
 
-Two-way live speech translation for rooms and online meetings, built on the Soniox real-time API (`stt-rt-v5`, `translation.type = "two_way"`).
+**Two-way live speech translation for conversations and online meetings.**
 
-Two panes, one conversation: each pane shows the whole conversation in one language. What was said in that language appears as-is (● filled dot), and what the other side said appears translated (○ ring).
+**Use it now: [marcus-saito.github.io/alligator](https://marcus-saito.github.io/alligator/)**. There's nothing to download. Open the link in Chrome or Edge, press play, and paste your Soniox API key when asked; the app walks you through getting one. To keep Alligator in your Dock or Start menu, click **Install** in the address bar (on iPhone and iPad: Share → **Add to Home Screen**).
 
-Speakers are told apart automatically (speaker diarization). Each speaker gets a colour, and a label such as **Speaker 1** opens each of their turns. Click a label to give that speaker a name.
+Alligator listens to a conversation, either people in the room or a meeting in another browser tab, and shows what each person says alongside its translation, live. It's built on the Soniox real-time API (`stt-rt-v5`, `translation.type = "two_way"`).
 
-There are two views, both available from **Options**:
-- **Side by side** (the default): one pane per language, as described above.
+- **Side by side** (the default view): one pane per language. Each pane shows the whole conversation in that language. What was said in that language appears as-is (● filled dot), and what the other side said appears translated (○ ring).
 - **Stacked:** a single centred column. Each turn shows what was said, with its translation right underneath in italics.
+- **Speakers:** voices are told apart automatically (speaker diarization). Each speaker gets a colour and a label such as **Speaker 1**; click a label to give that speaker a name.
 
-## Run
+## Private by design
 
-Requires Node 20.6+. There are no dependencies.
+- **Nothing is stored.** Alligator has no servers of its own, no accounts, no database and no analytics. Conversations exist only on screen until you close the page, unless you choose *Save transcript*, which downloads a file to your device.
+- **Audio goes straight to Soniox.** The browser sends speech directly to Soniox for transcription and translation; it never passes through Alligator. Soniox [states](https://soniox.com/docs/security-and-privacy) that it doesn't store real-time audio or transcripts and doesn't train on customer data.
+- **Your key and settings stay on your device.** They're kept in your browser's local storage, and you can remove the key at any time in Options.
+- **No third-party requests.** Fonts and icons are served with the app itself. The only other site the page talks to is Soniox.
+- **Open source.** The code is all here, under the [MIT License](LICENSE).
+
+## Run it yourself
+
+The hosted version is just the `public/` folder served as static files. GitHub Pages publishes it on every push to `main` (see `.github/workflows/pages.yml`). Any static host works the same way.
+
+To run it locally (Node 20.6+, no dependencies):
 
 ```bash
 npm start                   # → http://localhost:5173
 ```
 
-Open the page, press play, and paste your Soniox API key when asked. It's also under **Options → Soniox API key**, which explains how to get one. To preview the UI without a key, open `http://localhost:5173/#demo`. It replays a short three-person English/Spanish conversation.
+To preview the UI without a key, open `http://localhost:5173/#demo`. It replays a short three-person English/Spanish conversation.
 
 ### Where the API key lives
 
 - **Each person's own key (default).** The key is saved in that browser only (`localStorage`). For each session, the browser trades it with Soniox for a 60-second, single-use key and streams with that. If the key lacks the **Temporary API keys** permission, the browser streams with the key itself. Either way, the key goes only to Soniox.
-- **One key on the server (optional).** Set `SONIOX_API_KEY` in `.env` (see `.env.example`) when you host Alligator for people who shouldn't need their own key. The server then mints the short-lived keys, and its key never reaches the browser. A key someone adds in Options takes priority over the server's.
-
-Because the browser can talk to Soniox directly, `public/` also works as a plain static website, with no Node server at all.
+- **One key on the server (optional).** When you run `server.js` for people who shouldn't need their own key, set `SONIOX_API_KEY` in `.env` (see `.env.example`). The server then mints the short-lived keys, and its key never reaches the browser. A key someone adds in Options takes priority over the server's.
 
 ## Use
 
@@ -55,7 +63,8 @@ mic (+ tab audio) → AudioWorklet → 16 kHz PCM s16le → wss://stt-rt.soniox.
                          pane A  ←  Transcript (turns)  →  pane B
 ```
 
-- **`server.js`** serves `public/` and `POST /api/temporary-key`.
+- **`server.js`** (optional) serves `public/`, plus `GET /api/status` and `POST /api/temporary-key` when it holds a key.
+- **`public/sw.js`** is a service worker that lets the installed app open offline. It handles only the app's own files, network first, and never touches Soniox traffic.
 - **`public/pcm-worklet.js`** downmixes and resamples audio to 16 kHz mono PCM, sent in 100 ms frames. It also reports the input level used for the halo around the play button.
 - **`public/app.js`**
   - Session config: two-way translation, language hints for the pair, and `enable_speaker_diarization` from the Options switch. With diarization off, endpoint detection comes back on to split turns at natural pauses. The setting is part of a stream's setup, so changing it mid-session applies from the next Play.

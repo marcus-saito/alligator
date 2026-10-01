@@ -105,6 +105,8 @@ const ui = {
   keyRemove: $("#key-remove"),
   keyCancel: $("#key-cancel"),
   keySave: $("#key-save"),
+  aboutSheet: $("#about-sheet"),
+  aboutClose: $("#about-close"),
 };
 
 // ───────────────────────── Preferences ─────────────────────────
@@ -802,7 +804,7 @@ async function getStreamKey() {
   if (!serverHasKey) throw new KeyError("Add your Soniox API key to start translating.", "missing");
   let res;
   try {
-    res = await fetch("/api/temporary-key", { method: "POST" });
+    res = await fetch("api/temporary-key", { method: "POST" });
   } catch {
     throw new KeyError("Couldn’t reach the Alligator server.", "network");
   }
@@ -815,7 +817,7 @@ const hasAnyKey = () => Boolean(store.get(KEY_PREF, "")) || serverHasKey;
 
 // When Alligator is served by server.js, ask whether it holds a key. On a
 // static host this request simply fails and the user brings their own key.
-fetch("/api/status")
+fetch("api/status")
   .then((r) => (r.ok ? r.json() : {}))
   .then((d) => (serverHasKey = Boolean(d.serverKey)))
   .catch(() => {})
@@ -1217,7 +1219,7 @@ for (const pane of [ui.paneA, ui.paneB, ui.paneS]) {
 }
 
 document.addEventListener("keydown", (e) => {
-  if (ui.keySheet.open) return; // the dialog handles its own keys (Esc closes it)
+  if (ui.keySheet.open || ui.aboutSheet.open) return; // dialogs handle their own keys (Esc closes them)
   if (e.key === "Escape" && !ui.opts.hidden) {
     setOptionsOpen(false);
     ui.optsBtn.focus();
@@ -1258,6 +1260,25 @@ function toast(message) {
   ui.toast.style.animation = "";
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => (ui.toast.hidden = true), 6000);
+}
+
+// ───────────────────────── Privacy & install ─────────────────────────
+
+document.querySelectorAll("[data-about]").forEach((el) =>
+  el.addEventListener("click", () => {
+    setOptionsOpen(false);
+    if (ui.keySheet.open) ui.keySheet.close();
+    ui.aboutSheet.showModal();
+  }),
+);
+ui.aboutClose.addEventListener("click", () => ui.aboutSheet.close());
+ui.aboutSheet.addEventListener("click", (e) => {
+  if (e.target === ui.aboutSheet) ui.aboutSheet.close();
+});
+
+// Lets Alligator be installed as an app and open without a network.
+if ("serviceWorker" in navigator && window.isSecureContext) {
+  navigator.serviceWorker.register("sw.js").catch(() => {});
 }
 
 applyPrefs();

@@ -1437,3 +1437,120 @@ body[data-layout="stacked"] #pane-s {
     opacity: 0;
   }
 }
+
+/* ───────────── Privacy & open source ───────────── */
+
+.lock {
+  position: relative;
+  display: inline-block;
+  flex: none;
+  width: 9px;
+  height: 7px;
+  margin-top: 4px;
+  border-radius: 1.5px;
+  background: currentColor;
+}
+.lock::before {
+  content: "";
+  position: absolute;
+  left: 1.5px;
+  bottom: 100%;
+  width: 6px;
+  height: 5px;
+  box-sizing: border-box;
+  border: 1.4px solid currentColor;
+  border-bottom: 0;
+  border-radius: 3.5px 3.5px 0 0;
+}
+
+.about-link {
+  position: fixed;
+  left: var(--gutter);
+  bottom: max(40px, env(safe-area-inset-bottom));
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 4px;
+  border: 0;
+  background: none;
+  color: var(--ink-3);
+  font-size: 13px;
+  transition: color 0.25s, opacity 0.4s var(--ease);
+}
+.about-link:hover {
+  color: var(--ink);
+}
+/* Out of the way while a session runs. */
+body:not([data-state="idle"]) .about-link {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.opts-about {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  margin-top: 16px;
+  padding: 14px 0 0;
+  border: 0;
+  border-top: 1px solid var(--hair);
+  background: none;
+  color: var(--ink-2);
+  font-size: 13px;
+  text-align: left;
+}
+.opts-about:hover {
+  color: var(--ink);
+}
+
+.facts {
+  margin: 0 0 22px;
+  padding: 0;
+  list-style: none;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--ink-2);
+}
+.facts li {
+  padding: 12px 0;
+  border-top: 1px solid var(--hair);
+}
+.facts b {
+  display: block;
+  margin-bottom: 2px;
+  color: var(--ink);
+  font-weight: 500;
+}
+.facts a {
+  color: inherit;
+  text-underline-offset: 3px;
+}
+a.btn {
+  display: inline-block;
+  text-decoration: none;
+}
+
+.inline-link {
+  display: inline;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--ink-2);
+  font-size: inherit;
+  text-decoration: underline;
+  text-decoration-color: var(--hair);
+  text-underline-offset: 3px;
+}
+.inline-link:hover {
+  color: var(--ink);
+  text-decoration-color: currentColor;
+}
+
+@media (max-aspect-ratio: 1/1), (max-width: 760px) {
+  /* Face-to-face layout puts text right at the bottom edge; the link stays in Options. */
+  body[data-layout="split"][data-source="room"] .about-link {
+    display: none;
+  }
+}

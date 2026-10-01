@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- Alligator: eyes just above the waterline. Content stays inside the
+       maskable safe zone (central 80%). -->
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1b1b1c"/>
+      <stop offset="1" stop-color="#101011"/>
+    </linearGradient>
+    <linearGradient id="water" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#20302a"/>
+      <stop offset="1" stop-color="#121a16"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" fill="url(#sky)"/>
+  <!-- brow and eyes -->
+  <ellipse cx="256" cy="304" rx="126" ry="46" fill="#5d8a62"/>
+  <circle cx="204" cy="270" r="40" fill="#6e9a72"/>
+  <circle cx="308" cy="270" r="40" fill="#6e9a72"/>
+  <circle cx="204" cy="268" r="21" fill="#e6c95e"/>
+  <circle cx="308" cy="268" r="21" fill="#e6c95e"/>
+  <rect x="200" y="252" width="8" height="32" rx="4" fill="#141414"/>
+  <rect x="304" y="252" width="8" height="32" rx="4" fill="#141414"/>
+  <!-- water -->
+  <rect y="300" width="512" height="212" fill="url(#water)"/>
+  <rect x="96" y="299" width="320" height="3" rx="1.5" fill="#eeebe4" opacity="0.18"/>
+  <rect x="150" y="330" width="90" height="3" rx="1.5" fill="#eeebe4" opacity="0.08"/>
+  <rect x="270" y="346" width="70" height="3" rx="1.5" fill="#eeebe4" opacity="0.08"/>
+</svg>

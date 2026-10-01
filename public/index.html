@@ -17,16 +17,14 @@
       media="(prefers-color-scheme: dark)"
     />
     <title>Alligator</title>
-    <link
-      rel="icon"
-      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%90%8A%3C/text%3E%3C/svg%3E"
+    <meta
+      name="description"
+      content="Two-way live speech translation for conversations and online meetings. Private by design and open source."
     />
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Newsreader:ital,opsz,wght@0,6..72,300..500;1,6..72,300..400&display=swap"
-      rel="stylesheet"
-    />
+    <link rel="icon" href="icons/icon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="icons/icon-180.png" />
+    <link rel="manifest" href="manifest.webmanifest" />
+    <link rel="stylesheet" href="fonts/fonts.css" />
     <link rel="stylesheet" href="styles.css" />
     <script>
       // Apply the saved theme before first paint so there's no flash.
@@ -155,6 +153,11 @@
             </div>
             <button class="pill-btn" id="opt-key" type="button">Add</button>
           </div>
+
+          <button class="opts-about" type="button" data-about>
+            <span class="lock" aria-hidden="true"></span>
+            Stores nothing · Open source
+          </button>
         </div>
       </div>
     </header>
@@ -229,6 +232,44 @@
     </main>
 
     <button class="save" id="save" type="button" hidden>Save transcript</button>
+    <button class="about-link" type="button" data-about>
+      <span class="lock" aria-hidden="true"></span>
+      Private · Open source
+    </button>
+
+    <dialog class="sheet" id="about-sheet" aria-labelledby="about-title">
+      <h2 class="sheet-title" id="about-title">Private by design</h2>
+      <p class="sheet-lead">
+        Alligator has no servers of its own, no accounts and no tracking. It doesn’t keep anything you say.
+      </p>
+      <ul class="facts">
+        <li>
+          <b>Nothing is recorded or saved.</b> Conversations exist only on your screen. Close Alligator and
+          they’re gone, unless you choose <i>Save transcript</i>, which downloads a file to your own device.
+        </li>
+        <li>
+          <b>Audio goes straight to Soniox.</b> Your browser sends speech directly to Soniox, the service that
+          transcribes and translates it. It never passes through Alligator. Soniox
+          <a href="https://soniox.com/docs/security-and-privacy" target="_blank" rel="noopener noreferrer">says</a>
+          it doesn’t store live audio or transcripts and never uses them to train its models.
+        </li>
+        <li>
+          <b>Your key and settings stay on this device.</b> Your Soniox API key and preferences (languages, view,
+          theme) are kept in this browser only, so you don’t have to enter them again. Remove the key at any time
+          in Options.
+        </li>
+        <li>
+          <b>Open source.</b> All of Alligator’s code is public on GitHub under the MIT License, so anyone can
+          check these promises or run their own copy.
+        </li>
+      </ul>
+      <div class="sheet-actions">
+        <a class="btn btn-ghost" href="https://github.com/marcus-saito/alligator" target="_blank" rel="noopener noreferrer">View the code on GitHub</a>
+        <span class="spacer"></span>
+        <button type="button" class="btn btn-solid" id="about-close">Done</button>
+      </div>
+    </dialog>
+
     <dialog class="sheet" id="key-sheet" aria-labelledby="key-title">
       <form id="key-form" novalidate>
         <h2 class="sheet-title" id="key-title">Your Soniox API key</h2>
@@ -272,6 +313,7 @@
 
         <p class="sheet-fine">
           Your key is saved only in this browser, on this device. Alligator sends it to Soniox and nowhere else.
+          <button type="button" class="inline-link" data-about>How Alligator protects your privacy</button>
         </p>
 
         <div class="sheet-actions">
