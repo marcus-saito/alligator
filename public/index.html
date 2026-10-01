@@ -36,9 +36,27 @@
   </head>
   <body data-state="idle" data-source="room" data-layout="split">
     <header class="bar">
-      <div class="mark" aria-label="Alligator">
-        <span class="mark-glyph" aria-hidden="true">🐊</span>
-        alligator
+      <div class="brand">
+        <button
+          class="mark"
+          id="mark"
+          type="button"
+          aria-expanded="false"
+          aria-controls="name-note"
+          aria-label="Alligator: why the name?"
+          title="Why “Alligator”?"
+        >
+          <span class="mark-glyph" aria-hidden="true">🐊</span>
+          alligator
+        </button>
+        <div class="name-note" id="name-note" role="note" hidden>
+          <p class="name-note-title">Why “Alligator”?</p>
+          <p>
+            Because it sounds like <i>translator</i>. Say them back to back:
+            <b>alligator</b>, <b>translator</b>. Once you hear it, you can’t un-hear it.
+          </p>
+          <p class="name-note-fine">No alligators were consulted. They’re great listeners, though.</p>
+        </div>
       </div>
 
       <div class="pair" role="group" aria-label="Language pair">

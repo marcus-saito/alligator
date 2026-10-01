@@ -10,6 +10,10 @@ Alligator listens to a conversation, either people in the room or a meeting in a
 - **Stacked:** a single centred column. Each turn shows what was said, with its translation right underneath in italics.
 - **Speakers:** voices are told apart automatically (speaker diarization). Each speaker gets a colour and a label such as **Speaker 1**; click a label to give that speaker a name.
 
+### Why "Alligator"?
+
+Because it sounds like *translator*. Say them back to back: **alligator**, **translator**. Once you hear it, you can't un-hear it. 🐊 (Click the 🐊 in the app for the same story.)
+
 ## Private by design
 
 - **Nothing is stored.** Alligator has no servers of its own, no accounts, no database and no analytics. Conversations exist only on screen until you close the page, unless you choose *Save transcript*, which downloads a file to your device.

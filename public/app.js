@@ -105,6 +105,8 @@ const ui = {
   keyRemove: $("#key-remove"),
   keyCancel: $("#key-cancel"),
   keySave: $("#key-save"),
+  mark: $("#mark"),
+  nameNote: $("#name-note"),
   aboutSheet: $("#about-sheet"),
   aboutClose: $("#about-close"),
 };
@@ -278,6 +280,7 @@ tip.querySelector(".tip-btn").addEventListener("click", (e) => {
 });
 
 function setOptionsOpen(open) {
+  if (open) setNameNoteOpen(false);
   ui.opts.hidden = !open;
   ui.optsBtn.setAttribute("aria-expanded", String(open));
   tip.classList.remove("open");
@@ -286,7 +289,16 @@ function setOptionsOpen(open) {
 ui.optsBtn.addEventListener("click", () => setOptionsOpen(ui.opts.hidden));
 document.addEventListener("pointerdown", (e) => {
   if (!ui.opts.hidden && !e.target.closest("#opts, #opts-btn")) setOptionsOpen(false);
+  if (!ui.nameNote.hidden && !e.target.closest("#name-note, #mark")) setNameNoteOpen(false);
 });
+
+// Why "Alligator"? A little note behind the logo.
+function setNameNoteOpen(open) {
+  if (open) setOptionsOpen(false);
+  ui.nameNote.hidden = !open;
+  ui.mark.setAttribute("aria-expanded", String(open));
+}
+ui.mark.addEventListener("click", () => setNameNoteOpen(ui.nameNote.hidden));
 
 // ───────────────────────── Transcript ─────────────────────────
 // A "turn" is one speaker's utterance in one spoken language plus its
@@ -1223,6 +1235,11 @@ document.addEventListener("keydown", (e) => {
   if (e.key === "Escape" && !ui.opts.hidden) {
     setOptionsOpen(false);
     ui.optsBtn.focus();
+    return;
+  }
+  if (e.key === "Escape" && !ui.nameNote.hidden) {
+    setNameNoteOpen(false);
+    ui.mark.focus();
     return;
   }
   if (e.target.closest("select, input, textarea")) return;
