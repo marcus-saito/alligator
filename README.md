@@ -8,6 +8,7 @@ Alligator listens to a conversation, either people in the room or a meeting in a
 
 - **Side by side** (the default view): one pane per language. Each pane shows the whole conversation in that language. What was said in that language appears as-is (● filled dot), and what the other side said appears translated (○ ring).
 - **Stacked:** a single centred column. Each turn shows what was said, with its translation right underneath in italics.
+- **Pop-out:** the ⧉ button next to play opens a small window that stays on top of everything, including Google Meet, Microsoft Teams and the Zoom desktop app, so you can read the conversation while you're in the meeting. It has its own pause and stop buttons. Chrome and Edge on a computer only.
 - **Speakers:** voices are told apart automatically (speaker diarization). Each speaker gets a colour and a label such as **Speaker 1**; click a label to give that speaker a name.
 
 ### Why "Alligator"?
@@ -48,6 +49,7 @@ To preview the UI without a key, open `http://localhost:5173/#demo`. It replays 
 | ▶ / ❚❚                       | Start, pause and resume. **Space** does the same.                        |
 | ■                            | End the session. **Esc** does the same.                                  |
 | Speaker label                | Click to rename that speaker everywhere. **Enter** saves, **Esc** cancels. |
+| ⧉ Pop out                    | Moves the conversation into a small always-on-top window (Chrome and Edge on desktop). Press again, or close that window, to bring it back. |
 | Options (sliders icon)       | **View:** Side by side or Stacked. **Appearance:** Auto (follows your system), Light or Dark. **Tell speakers apart:** turns speaker diarization on or off; the ⓘ explains it in plain language. **Soniox API key:** add, change or remove your key, with step-by-step help. Your choices are remembered in this browser. |
 | Save transcript              | Appears once a session ends and downloads a `.txt` file with timestamps and speaker names. |
 

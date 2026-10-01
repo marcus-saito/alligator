@@ -106,6 +106,10 @@ const ui = {
   keyCancel: $("#key-cancel"),
   keySave: $("#key-save"),
   mark: $("#mark"),
+  stage: $(".stage"),
+  pop: $("#pop"),
+  popped: $("#popped"),
+  popBack: $("#pop-back"),
   nameNote: $("#name-note"),
   aboutSheet: $("#about-sheet"),
   aboutClose: $("#about-close"),
@@ -160,8 +164,8 @@ function applyPrefs() {
   ui.langB.value = prefs.b;
   for (const side of ["a", "b"]) {
     const code = prefs[side];
-    document
-      .querySelectorAll(`[data-for="${side}"]`)
+    // The stacked pane may be in the pop-out window, so label it directly too.
+    [...document.querySelectorAll(`[data-for="${side}"]`), ...ui.paneS.querySelectorAll(`[data-for="${side}"]`)]
       .forEach((el) => (el.textContent = autonym(code)));
     const pane = side === "a" ? ui.paneA : ui.paneB;
     pane.lang = code;
@@ -177,6 +181,7 @@ function applyPrefs() {
   if (prefs.theme === "auto") delete document.documentElement.dataset.theme;
   else document.documentElement.dataset.theme = prefs.theme;
   renderOptions();
+  syncPip();
   store.set("alligator.a", prefs.a);
   store.set("alligator.b", prefs.b);
   store.set("alligator.source", prefs.source);
@@ -1141,6 +1146,7 @@ function setState(state) {
   tickClock();
   setStatus();
   renderOptions();
+  syncPip();
   transcript.render();
 }
 
@@ -1164,6 +1170,7 @@ function tickClock() {
   const h = Math.floor(s / 3600);
   const mm = String(Math.floor((s % 3600) / 60)).padStart(h ? 2 : 1, "0");
   ui.clock.textContent = `${h ? h + ":" : ""}${mm}:${String(s % 60).padStart(2, "0")}`;
+  if (pip) pip.clock.textContent = ui.clock.textContent;
 }
 
 async function requestWakeLock() {
@@ -1230,7 +1237,11 @@ for (const pane of [ui.paneA, ui.paneB, ui.paneS]) {
   });
 }
 
-document.addEventListener("keydown", (e) => {
+document.addEventListener("keydown", onKeydown);
+function onKeydown(e) {
+  // In the pop-out, Space pauses and resumes; starting happens in the main window.
+  const inPopOut = e.target.ownerDocument !== document;
+  if (inPopOut && e.code === "Space" && body.dataset.state === "idle") return;
   if (ui.keySheet.open || ui.aboutSheet.open) return; // dialogs handle their own keys (Esc closes them)
   if (e.key === "Escape" && !ui.opts.hidden) {
     setOptionsOpen(false);
@@ -1249,7 +1260,7 @@ document.addEventListener("keydown", (e) => {
   } else if (e.key === "Escape" && session) {
     session.stop();
   }
-});
+}
 
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "visible" && body.dataset.state === "live")
@@ -1270,6 +1281,7 @@ ui.save.addEventListener("click", () => {
 
 let toastTimer;
 function toast(message) {
+  if (pip) showPipMessage(message);
   ui.toast.textContent = message;
   ui.toast.hidden = false;
   ui.toast.style.animation = "none";
@@ -1278,6 +1290,114 @@ function toast(message) {
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => (ui.toast.hidden = true), 6000);
 }
+
+// ───────────────────────── Pop-out ─────────────────────────
+// Document Picture-in-Picture: a small always-on-top window that floats over
+// Meet, Teams or Zoom (their desktop apps too). The stacked transcript pane
+// moves into it, so the same live rendering keeps working there, and moves
+// back when the window closes. Chrome and Edge on desktop only.
+
+const canPopOut = "documentPictureInPicture" in window;
+let pip = null; // { win, doc, clock, langs, msg }
+ui.pop.hidden = !canPopOut;
+
+const PIP_BAR = `
+  <header class="pip-bar">
+    <span class="pip-status"><span class="dot" aria-hidden="true"></span><span class="pip-clock">0:00</span></span>
+    <span class="pip-langs"></span>
+    <span class="pip-hint">Press play in Alligator to start</span>
+    <span class="spacer"></span>
+    <button class="pip-btn pip-main" type="button" aria-label="Pause">
+      <svg class="i-play" viewBox="0 0 24 24" aria-hidden="true"><path d="M8.5 5.8v12.4a1 1 0 0 0 1.5.86l10-6.2a1 1 0 0 0 0-1.72l-10-6.2a1 1 0 0 0-1.5.86Z" /></svg>
+      <svg class="i-pause" viewBox="0 0 24 24" aria-hidden="true"><rect x="6.5" y="5" width="3.6" height="14" rx="1.2" /><rect x="13.9" y="5" width="3.6" height="14" rx="1.2" /></svg>
+    </button>
+    <button class="pip-btn pip-stop" type="button" aria-label="Stop">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="7" y="7" width="10" height="10" rx="2" /></svg>
+    </button>
+  </header>
+  <p class="pip-msg" role="alert" hidden></p>`;
+
+async function popOut() {
+  if (pip) return popIn(); // the button toggles
+  setOptionsOpen(false);
+  setNameNoteOpen(false);
+  let win;
+  try {
+    win = await documentPictureInPicture.requestWindow({ width: 420, height: 360 });
+  } catch {
+    return toast("Couldn’t open the pop-out window.");
+  }
+  const doc = win.document;
+  // Same look as the main window: copy the stylesheets with absolute URLs.
+  for (const link of document.head.querySelectorAll('link[rel="stylesheet"]')) {
+    const copy = doc.createElement("link");
+    copy.rel = "stylesheet";
+    copy.href = link.href;
+    doc.head.append(copy);
+  }
+  doc.title = "Alligator";
+  doc.body.className = "pip";
+  doc.body.innerHTML = PIP_BAR;
+  doc.body.append(ui.paneS);
+  pip = {
+    win,
+    doc,
+    clock: doc.querySelector(".pip-clock"),
+    langs: doc.querySelector(".pip-langs"),
+    msg: doc.querySelector(".pip-msg"),
+  };
+  doc.querySelector(".pip-main").addEventListener("click", () => {
+    if (body.dataset.state === "live") session?.pause();
+    else if (body.dataset.state === "paused") session?.resume();
+  });
+  doc.querySelector(".pip-stop").addEventListener("click", () => session?.stop());
+  doc.addEventListener("keydown", onKeydown);
+  win.addEventListener("pagehide", popIn);
+  body.dataset.pip = "";
+  ui.pop.setAttribute("aria-pressed", "true");
+  ui.pop.setAttribute("aria-label", "Bring the conversation back");
+  syncPip();
+  scrollToLatest(ui.paneS);
+}
+
+function popIn() {
+  if (!pip) return;
+  const { win } = pip;
+  pip = null;
+  ui.stage.insertBefore(ui.paneS, ui.popped); // back to its place in the stage
+  delete body.dataset.pip;
+  ui.pop.setAttribute("aria-pressed", "false");
+  ui.pop.setAttribute("aria-label", "Pop out");
+  scrollToLatest(ui.paneS);
+  if (!win.closed) win.close();
+}
+
+function syncPip() {
+  if (!pip) return;
+  const { doc } = pip;
+  doc.body.dataset.state = body.dataset.state;
+  if (document.documentElement.dataset.theme) doc.documentElement.dataset.theme = document.documentElement.dataset.theme;
+  else delete doc.documentElement.dataset.theme;
+  pip.langs.textContent = `${autonym(prefs.a)} ⇄ ${autonym(prefs.b)}`;
+  pip.clock.textContent = ui.clock.textContent;
+  doc.querySelector(".pip-main").setAttribute("aria-label", body.dataset.state === "live" ? "Pause" : "Resume");
+}
+
+let pipMsgTimer;
+function showPipMessage(message) {
+  pip.msg.textContent = message;
+  pip.msg.hidden = false;
+  clearTimeout(pipMsgTimer);
+  pipMsgTimer = setTimeout(() => pip && (pip.msg.hidden = true), 6000);
+}
+
+function scrollToLatest(pane) {
+  const feed = pane.querySelector(".feed");
+  feed.scrollTop = feed.scrollHeight;
+}
+
+ui.pop.addEventListener("click", popOut);
+ui.popBack.addEventListener("click", popIn);
 
 // ───────────────────────── Privacy & install ─────────────────────────
 

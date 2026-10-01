@@ -206,6 +206,14 @@
         </p>
       </section>
 
+      <div class="popped" id="popped">
+        <p class="popped-title">The conversation is in the pop-out window</p>
+        <p class="popped-text">
+          It stays on top of Meet, Teams or Zoom while you talk. Close it or bring it back at any time.
+        </p>
+        <button type="button" class="btn btn-ghost" id="pop-back">Bring it back</button>
+      </div>
+
       <div class="deck">
         <div class="controls">
           <button
@@ -244,6 +252,21 @@
             <span class="dot" aria-hidden="true"></span
             ><span id="clock">0:00</span>
           </div>
+
+          <button
+            class="ctl ctl-pop"
+            id="pop"
+            type="button"
+            aria-label="Pop out"
+            aria-pressed="false"
+            title="Pop out: keep the conversation on top of your meeting"
+            hidden
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <rect x="3.5" y="5" width="17" height="14" rx="2.5" />
+              <rect class="fill" x="11.5" y="11" width="6.5" height="5.5" rx="1.2" />
+            </svg>
+          </button>
         </div>
         <p class="status" id="status" role="status">Press play to begin</p>
       </div>
