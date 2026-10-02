@@ -54,8 +54,7 @@
   --hair: rgba(238, 235, 228, 0.1);
   --glass: rgba(28, 28, 30, 0.66);
   --glass-edge: rgba(255, 255, 255, 0.07);
-  --shadow:
-    0 1px 1px rgba(0, 0, 0, 0.3), 0 16px 40px -10px rgba(0, 0, 0, 0.7);
+  --shadow: 0 1px 1px rgba(0, 0, 0, 0.3), 0 16px 40px -10px rgba(0, 0, 0, 0.7);
   --btn: #eeebe4;
   --btn-ink: #0d0d0e;
   color-scheme: dark;
@@ -147,15 +146,19 @@ select:focus-visible + *,
   animation: chomp 0.7s var(--ease);
 }
 .mark-glyph {
-  display: inline-block;
-  font-size: 22px;
-  line-height: 1;
-  font-family: "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif;
+  display: block;
+  width: 28px;
+  height: 24px;
+  overflow: visible;
   transform-origin: 50% 80%;
 }
-/* While listening, the gator swims gently along. */
-body[data-state="live"] .mark-glyph {
-  animation: swim 2.4s var(--ease) infinite;
+/* While listening, the gator's teeth gently "talk". */
+.mark-glyph .teeth {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+body[data-state="live"] .mark-glyph .teeth {
+  animation: talk 0.9s ease-in-out infinite;
 }
 
 .pair {
@@ -444,7 +447,9 @@ body:not([data-state="idle"]) .source {
   cursor: text;
   text-decoration: underline dotted transparent;
   text-underline-offset: 3px;
-  transition: text-decoration-color 0.2s, opacity 0.4s var(--ease);
+  transition:
+    text-decoration-color 0.2s,
+    opacity 0.4s var(--ease);
 }
 .who:hover {
   text-decoration-color: currentColor;
@@ -831,7 +836,12 @@ body:is([data-state="live"], [data-state="paused"], [data-state="stopping"])
 
 /* ───────────── Motion ───────────── */
 
-@keyframes fade { from { opacity: 0; filter: blur(4px); } }
+@keyframes fade {
+  from {
+    opacity: 0;
+    filter: blur(4px);
+  }
+}
 @keyframes rise {
   from {
     opacity: 0;
@@ -867,9 +877,9 @@ body:is([data-state="live"], [data-state="paused"], [data-state="stopping"])
     opacity: 0.35;
   }
 }
-@keyframes swim {
+@keyframes talk {
   50% {
-    transform: translate(2px, -1.5px) rotate(-3deg);
+    transform: translateY(2px) scaleY(0.72);
   }
 }
 
@@ -913,7 +923,10 @@ body:is([data-state="live"], [data-state="paused"], [data-state="stopping"])
   border-radius: 50%;
   background: var(--hair);
   color: var(--ink-2);
-  transition: background 0.25s var(--ease), color 0.25s, transform 0.4s var(--ease);
+  transition:
+    background 0.25s var(--ease),
+    color 0.25s,
+    transform 0.4s var(--ease);
 }
 .opts-btn:hover,
 .opts-btn[aria-expanded="true"] {
@@ -944,7 +957,10 @@ body:is([data-state="live"], [data-state="paused"], [data-state="stopping"])
   background: color-mix(in srgb, var(--bg) 92%, transparent);
   -webkit-backdrop-filter: blur(28px) saturate(1.6);
   backdrop-filter: blur(28px) saturate(1.6);
-  box-shadow: var(--shadow), inset 0 0 0 0.5px var(--glass-edge), inset 0 0 0 1px var(--hair);
+  box-shadow:
+    var(--shadow),
+    inset 0 0 0 0.5px var(--glass-edge),
+    inset 0 0 0 1px var(--hair);
   transform-origin: top right;
   animation: pop 0.35s var(--ease) both;
 }
@@ -983,7 +999,10 @@ body:is([data-state="live"], [data-state="paused"], [data-state="stopping"])
   background: none;
   color: var(--ink-2);
   font-size: 13px;
-  transition: background 0.25s var(--ease), color 0.25s, box-shadow 0.25s;
+  transition:
+    background 0.25s var(--ease),
+    color 0.25s,
+    box-shadow 0.25s;
 }
 .seg button:hover {
   color: var(--ink);
@@ -991,7 +1010,9 @@ body:is([data-state="live"], [data-state="paused"], [data-state="stopping"])
 .seg button[aria-checked="true"] {
   background: var(--bg);
   color: var(--ink);
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08), 0 0 0 0.5px var(--hair);
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.08),
+    0 0 0 0.5px var(--hair);
 }
 .seg svg {
   width: 22px;
@@ -1048,7 +1069,9 @@ body:is([data-state="live"], [data-state="paused"], [data-state="stopping"])
   border-radius: 50%;
   background: var(--bg);
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
-  transition: transform 0.35s var(--ease), background 0.3s;
+  transition:
+    transform 0.35s var(--ease),
+    background 0.3s;
 }
 .switch[aria-checked="true"] {
   background: var(--ink);
@@ -1095,7 +1118,10 @@ body:is([data-state="live"], [data-state="paused"], [data-state="stopping"])
   opacity: 0;
   visibility: hidden;
   transform: translateY(4px);
-  transition: opacity 0.2s, transform 0.3s var(--ease), visibility 0.2s;
+  transition:
+    opacity 0.2s,
+    transform 0.3s var(--ease),
+    visibility 0.2s;
   pointer-events: none;
 }
 .tip:hover .tip-body,
@@ -1258,7 +1284,9 @@ body[data-layout="stacked"] #pane-s {
   border-radius: 24px;
   background: var(--bg);
   color: var(--ink);
-  box-shadow: var(--shadow), 0 0 0 1px var(--hair);
+  box-shadow:
+    var(--shadow),
+    0 0 0 1px var(--hair);
   overflow: auto;
 }
 .sheet[open] {
@@ -1306,7 +1334,11 @@ body[data-layout="stacked"] #pane-s {
   outline: none;
   background: none;
   color: var(--ink);
-  font: 15px/1.2 ui-monospace, "SF Mono", Menlo, monospace;
+  font:
+    15px/1.2 ui-monospace,
+    "SF Mono",
+    Menlo,
+    monospace;
 }
 .field input::placeholder {
   color: var(--ink-3);
@@ -1414,7 +1446,10 @@ body[data-layout="stacked"] #pane-s {
   border-radius: 999px;
   font-size: 14px;
   font-weight: 500;
-  transition: background 0.2s, opacity 0.2s, transform 0.2s var(--ease);
+  transition:
+    background 0.2s,
+    opacity 0.2s,
+    transform 0.2s var(--ease);
 }
 .btn:active {
   transform: scale(0.97);
@@ -1494,7 +1529,9 @@ body[data-layout="stacked"] #pane-s {
   background: none;
   color: var(--ink-3);
   font-size: 13px;
-  transition: color 0.25s, opacity 0.4s var(--ease);
+  transition:
+    color 0.25s,
+    opacity 0.4s var(--ease);
 }
 .about-link:hover {
   color: var(--ink);
@@ -1586,7 +1623,10 @@ a.btn {
   background: color-mix(in srgb, var(--bg) 92%, transparent);
   -webkit-backdrop-filter: blur(28px) saturate(1.6);
   backdrop-filter: blur(28px) saturate(1.6);
-  box-shadow: var(--shadow), inset 0 0 0 0.5px var(--glass-edge), inset 0 0 0 1px var(--hair);
+  box-shadow:
+    var(--shadow),
+    inset 0 0 0 0.5px var(--glass-edge),
+    inset 0 0 0 1px var(--hair);
   font-size: 14px;
   line-height: 1.5;
   color: var(--ink-2);
@@ -1639,7 +1679,9 @@ a.btn {
   margin-left: 6px;
   background: transparent;
   color: var(--ink-2);
-  transition: background 0.25s, color 0.25s;
+  transition:
+    background 0.25s,
+    color 0.25s;
 }
 .ctl-pop:hover,
 .ctl-pop[aria-pressed="true"] {
@@ -1772,7 +1814,12 @@ body.pip[data-state="live"] .pip-main .i-play {
 body.pip[data-state="live"] .pip-main .i-pause {
   display: block;
 }
-body.pip:is([data-state="idle"], [data-state="connecting"], [data-state="stopping"]) .pip-btn {
+body.pip:is(
+    [data-state="idle"],
+    [data-state="connecting"],
+    [data-state="stopping"]
+  )
+  .pip-btn {
   display: none;
 }
 .pip-msg {

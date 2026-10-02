@@ -13,7 +13,7 @@ Alligator listens to a conversation, either people in the room or a meeting in a
 
 ### Why "Alligator"?
 
-Because it sounds like *translator*. Say them back to back: **alligator**, **translator**. Once you hear it, you can't un-hear it. 🐊 (Click the 🐊 in the app for the same story.)
+Because it sounds like *translator*. Say them back to back: **alligator**, **translator**. Once you hear it, you can't un-hear it. 🐊 (Click the gator logo in the app for the same story.)
 
 ## Private by design
 
