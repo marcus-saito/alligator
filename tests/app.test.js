@@ -1,0 +1,326 @@
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { test as nodeTest } from "node:test";
+
+const test = (name, check) => nodeTest(name, { timeout: 1500 }, check);
+import vm from "node:vm";
+
+// Exercise the browser's actual classes without exporting them or loading keys.
+// Boundaries fail loudly if app sections are renamed or reorganized.
+const source = readFileSync(process.env.ALLIGATOR_TEST_APP || new URL("../public/app.js", import.meta.url), "utf8");
+function section(from, to) {
+  const start = source.indexOf(from);
+  const end = source.indexOf(to, start);
+  assert.ok(start >= 0 && end > start, `Missing app section: ${from}`);
+  return source.slice(start, end);
+}
+const deferred = () => {
+  let resolve, reject;
+  const promise = new Promise((yes, no) => { resolve = yes; reject = no; });
+  return { promise, resolve, reject };
+};
+const flush = () => new Promise(setImmediate);
+
+class Element {
+  constructor(tag = "div") {
+    this.tagName = tag.toUpperCase();
+    this.children = [];
+    this.dataset = {};
+    this.style = { setProperty() {}, removeProperty() {} };
+    this.className = "";
+    this.textContent = "";
+    this.listeners = {};
+    this.scrollHeight = this.scrollTop = this.clientHeight = 0;
+    this.classList = {
+      contains: (c) => this.className.split(" ").includes(c),
+      add: (c) => { if (!this.classList.contains(c)) this.className += ` ${c}`; },
+      remove: (c) => { this.className = this.className.split(" ").filter((x) => x !== c).join(" "); },
+      toggle: (c, on) => on ? this.classList.add(c) : this.classList.remove(c),
+    };
+  }
+  append(...nodes) { for (const n of nodes) { n.parent = this; this.children.push(n); } }
+  after(n) { n.parent = this.parent; this.parent.children.splice(this.parent.children.indexOf(this) + 1, 0, n); }
+  remove() { this.parent.children.splice(this.parent.children.indexOf(this), 1); }
+  querySelector(selector) {
+    const matches = (n) => selector.split(".").slice(1).every((c) => n.classList.contains(c));
+    for (const n of this.children) {
+      if (matches(n)) return n;
+      const found = n.querySelector(selector);
+      if (found) return found;
+    }
+    return null;
+  }
+  closest(selector) { return this.classList.contains(selector.slice(1)) ? this : this.parent?.closest(selector); }
+  setAttribute(k, v) { this[k] = v; }
+  addEventListener(k, fn) { this.listeners[k] = fn; }
+  focus() {}
+  get lastElementChild() { return this.children.at(-1); }
+  get previousElementSibling() { return this.parent.children[this.parent.children.indexOf(this) - 1]; }
+}
+
+function transcriptHarness() {
+  const pane = (lang) => {
+    const p = new Element(); p.lang = lang;
+    const feed = new Element(); feed.className = "feed"; p.append(feed); return p;
+  };
+  const context = vm.createContext({
+    document: { createElement: (tag) => new Element(tag) },
+    ui: { paneA: pane("en"), paneB: pane("es"), paneS: pane(""), save: {} },
+    body: { dataset: { state: "live" } }, prefs: { a: "en", b: "es" },
+    RTL: new Set(), SPLIT_AFTER_CHARS: 240, SENTENCE_END: /[.!?。！？…][”"'»)\]]*\s*$/u,
+    SPEAKER_COLORS: ["blue", "green"],
+  });
+  vm.runInContext(section("class Transcript {", "const transcript =") + "globalThis.transcript = new Transcript();", context);
+  return context;
+}
+const original = (text, is_final = true) => ({ text, is_final, language: "en", speaker: "1", translation_status: "original" });
+const translation = (text, is_final = true) => ({ text, is_final, language: "es", source_language: "en", speaker: "1", translation_status: "translation" });
+
+for (const view of [0, 2]) {
+  for (const action of ["Enter", "Escape", "blur"]) {
+    test(`incoming tokens while renaming in view ${view}, then ${action}`, () => {
+      const { transcript: t } = transcriptHarness();
+      t.ingest([original("Hello"), translation("Hola")]);
+      const el = t.turns[0].els[view];
+      t.rename("0:1", el.querySelector(".who"));
+      const input = el.querySelector(".who-edit");
+      input.value = "Alex";
+      t.ingest([original(" world"), translation(" mundo"), original("!", false)]);
+      assert.equal(t.turns[0].els[0].querySelector(".f").textContent, "Hello world");
+      assert.equal(t.turns[0].els[2].querySelector(".src").children[1].textContent, "Hello world");
+      assert.equal(t.turns[0].els[2].querySelector(".dst").children[1].textContent, "Hola mundo");
+      if (action === "blur") input.listeners.blur();
+      else input.listeners.keydown({ key: action, stopPropagation() {} });
+      assert.equal(el.querySelector(".who-edit"), null);
+      assert.equal(t.speakerName(t.turns[0]), action === "Escape" ? "Speaker 1" : "Alex");
+      assert.match(t.toText(), /Hello world/);
+    });
+  }
+}
+
+function audioHarness(failure, gates = {}) {
+  const track = () => ({ stopped: false, stop() { this.stopped = true; } });
+  const micTrack = track(), tabTrack = track(), videoTrack = track();
+  const mic = { getTracks: () => [micTrack] };
+  const display = { getAudioTracks: () => [tabTrack], getVideoTracks: () => [videoTrack], getTracks: () => [tabTrack, videoTrack] };
+  const contexts = [];
+  class AudioContext {
+    constructor() {
+      this.state = "running";
+      this.audioWorklet = { addModule: async () => { if (gates.module) await gates.module; if (failure === "module") throw new Error("module failed"); } };
+      contexts.push(this);
+    }
+    createMediaStreamSource() { return { connect() {} }; }
+    createGain() { return { gain: {}, connect() {} }; }
+    async resume() { if (gates.resume) await gates.resume; if (failure === "resume") throw new Error("resume failed"); }
+    async close() { this.state = "closed"; }
+  }
+  class Worklet {
+    constructor() { if (failure === "worklet") throw new Error("worklet failed"); this.port = {}; }
+    connect(sink) { return sink; }
+  }
+  const devices = { getDisplayMedia: async () => display, getUserMedia: async () => {
+    if (failure === "mic") throw new Error("mic denied"); return mic;
+  } };
+  const context = vm.createContext({ navigator: { mediaDevices: devices }, AudioContext, AudioWorkletNode: Worklet,
+    MediaStream: class { constructor(tracks) { this.getTracks = () => tracks; } } });
+  vm.runInContext(section("async function openAudio(", "// ───────────────────────── Soniox session"), context);
+  return { ...context, devices, mic, display, contexts, micTrack, tabTrack, videoTrack };
+}
+for (const failure of ["mic", "module", "worklet", "resume"]) {
+  test(`capture startup cleans up after ${failure} failure`, async () => {
+    const h = audioHarness(failure);
+    await assert.rejects(h.openAudio("meeting", () => {}), /denied|failed/);
+    assert.ok(h.tabTrack.stopped && h.videoTrack.stopped);
+    if (failure !== "mic") assert.ok(h.micTrack.stopped);
+    assert.ok(h.contexts.every((ctx) => ctx.state === "closed"));
+  });
+}
+for (const permission of ["getDisplayMedia", "getUserMedia"]) {
+  test(`Stop during pending ${permission} releases streams returned later`, async () => {
+    const h = audioHarness(); const pending = deferred(); const abort = new AbortController();
+    h.devices[permission] = () => pending.promise;
+    const opening = h.openAudio("meeting", () => {}, abort.signal);
+    await flush(); abort.abort();
+    if (permission === "getUserMedia") assert.ok(h.tabTrack.stopped && h.videoTrack.stopped);
+    pending.resolve(permission === "getDisplayMedia" ? h.display : h.mic);
+    await assert.rejects(opening, { name: "AbortError" });
+    assert.ok(h.tabTrack.stopped && h.videoTrack.stopped);
+    if (permission === "getUserMedia") assert.ok(h.micTrack.stopped);
+    assert.equal(h.contexts.length, 0);
+  });
+}
+test("successful capture closes all tracks and its audio context on abort", async () => {
+  const h = audioHarness(); const abort = new AbortController();
+  const audio = await h.openAudio("meeting", () => {}, abort.signal);
+  abort.abort();
+  assert.ok(h.micTrack.stopped && h.tabTrack.stopped && h.videoTrack.stopped);
+  assert.equal(h.contexts[0].state, "closed");
+  audio.close();
+});
+
+function sessionHarness(overrides = {}) {
+  const sockets = [], states = [], errors = [], timers = [];
+  class WebSocket {
+    static OPEN = 1;
+    constructor(url, protocols) { this.url = url; this.protocols = protocols; this.readyState = 0; this.sent = []; sockets.push(this); }
+    send(data) { this.sent.push(data); }
+    open() { this.readyState = 1; this.onopen(); }
+    close() { this.readyState = 3; this.onclose?.(); }
+  }
+  const audio = { closed: false, close() { this.closed = true; } };
+  const context = vm.createContext({
+    AbortController, WebSocket, Int16Array, SONIOX_WS: "wss://stt-rt.soniox.com/transcribe-websocket",
+    MODEL: "stt-rt-v5", KEEPALIVE_MS: 10000, MAX_RECONNECTS: 3,
+    transcript: { newEpoch() {}, clearDrafts() {}, closeTurn() {}, ingest() {} },
+    openAudio: async () => audio, getStreamKey: async () => "snx_temp_synthetic",
+    setTimeout: (fn) => { timers.push(fn); return fn; },
+    setInterval: (fn) => fn, clearInterval() {}, friendlyError: () => "Authentication failed",
+    ...overrides,
+  });
+  vm.runInContext(section("class Session {", "function friendlyError") + "globalThis.Session = Session;", context);
+  const s = new context.Session({ a: "en", b: "es", source: "room", diarize: true });
+  s.onState = (state) => states.push(state); s.onError = (message) => errors.push(message);
+  return { context, s, sockets, states, errors, timers, audio };
+}
+
+test("Stop during startup closes late audio without opening a socket", async () => {
+  const pending = deferred(); const h = sessionHarness({ openAudio: () => pending.promise });
+  const starting = h.s.start(); await h.s.stop(); pending.resolve(h.audio); await flush();
+  h.sockets.forEach((ws) => ws.open()); await starting;
+  assert.ok(h.audio.closed); assert.equal(h.sockets.length, 0);
+  assert.deepEqual(h.states, ["stopping", "idle"]);
+});
+test("Stop during key minting prevents a late socket", async () => {
+  const pending = deferred(); const h = sessionHarness({ getStreamKey: () => pending.promise });
+  const starting = h.s.start(); await flush(); await h.s.stop();
+  pending.resolve("snx_temp_late"); await starting;
+  assert.equal(h.sockets.length, 0); assert.ok(h.audio.closed);
+  assert.deepEqual(h.states, ["stopping", "idle"]);
+});
+test("Stop during socket handshake settles startup and ignores a late open", async () => {
+  const h = sessionHarness(); const starting = h.s.start(); await flush();
+  await h.s.stop(); h.sockets[0].open(); await starting;
+  assert.equal(h.sockets[0].sent.length, 0); assert.equal(h.sockets[0].readyState, 3);
+  assert.deepEqual(h.states, ["stopping", "idle"]);
+});
+test("close before socket open rejects startup without scheduling reconnect", async () => {
+  const h = sessionHarness(); const starting = h.s.start(); await flush(); h.sockets[0].close();
+  await assert.rejects(starting, /reach Soniox/); h.s.teardown();
+  assert.equal(h.timers.length, 0); assert.ok(h.audio.closed);
+});
+test("Stop during reconnect delay prevents another connection", async () => {
+  const h = sessionHarness(); const starting = h.s.start(); await flush(); h.sockets[0].open(); await starting;
+  h.sockets[0].close(); await h.s.stop(); h.timers.shift()(); await flush();
+  assert.equal(h.sockets.length, 1); assert.equal(h.states.at(-1), "idle");
+});
+test("Stop during reconnect key minting prevents another connection", async () => {
+  const h = sessionHarness(); const starting = h.s.start(); await flush(); h.sockets[0].open(); await starting;
+  const key = deferred(); h.context.getStreamKey = () => key.promise;
+  h.sockets[0].close(); h.timers.shift()(); await flush(); await h.s.stop(); key.resolve("snx_temp_late"); await flush();
+  assert.equal(h.sockets.length, 1); assert.equal(h.states.at(-1), "idle");
+});
+test("normal pause/resume and Stop flush remain intact", async () => {
+  const h = sessionHarness(); const starting = h.s.start(); await flush(); h.sockets[0].open(); await starting;
+  const ws = h.sockets[0]; h.s.pause();
+  assert.equal(ws.sent[1].byteLength, 9600); assert.deepEqual(JSON.parse(ws.sent[2]), { type: "finalize" });
+  h.s.keepalive(); assert.deepEqual(JSON.parse(ws.sent[3]), { type: "keepalive" }); h.s.resume();
+  const stopping = h.s.stop(); assert.equal(ws.sent.at(-1), "");
+  ws.onmessage({ data: JSON.stringify({ finished: true }) }); await stopping;
+  assert.ok(h.audio.closed); assert.equal(ws.readyState, 3);
+  assert.deepEqual(h.states, ["live", "paused", "live", "stopping", "idle"]);
+});
+
+test("cancelled controller startup cannot tear down a newer session", async () => {
+  const old = deferred(); const instances = [];
+  class Session {
+    constructor() { this.pending = instances.length ? deferred() : old; instances.push(this); }
+    start() { return this.pending.promise; }
+    teardown() { this.tornDown = true; this.onState("idle"); }
+  }
+  const context = vm.createContext({
+    navigator: { mediaDevices: { getUserMedia() {} } }, prefs: { source: "room" },
+    hasAnyKey: () => true, clock: {}, transcript: { addBreak() {}, closeTurn() {} }, Session,
+    body: { style: { setProperty() {} } }, setState: () => {}, toast() {}, KeyError: class extends Error {},
+  });
+  vm.runInContext("let session = null;\n" + section("async function start() {", "ui.main.addEventListener") + "globalThis.getSession = () => session;", context);
+  const first = context.start();
+  instances[0].stopping = true; instances[0].onState("idle");
+  const second = context.start();
+  old.reject(new Error("late failure")); await first;
+  assert.equal(context.getSession(), instances[1]); assert.ok(!instances[1].tornDown);
+  instances[1].pending.resolve(); await second;
+});
+
+for (const path of ["temporary", "direct", "server"]) {
+  test(`connection authentication with ${path} key, including reconnect`, async () => {
+    const requests = [];
+    let minted = 0;
+    const keys = vm.createContext({
+      SONIOX_API: "https://api.soniox.com/v1", KEY_PREF: "alligator.apiKey",
+      serverHasKey: path === "server",
+      store: { get: () => path === "server" ? "" : "synthetic-user-key" },
+      fetch: async (url, options) => {
+        requests.push({ url, options }); minted++;
+        return { ok: path !== "direct", status: path === "direct" ? 403 : 200,
+          json: async () => ({ api_key: `snx_temp_synthetic_${minted}` }) };
+      },
+    });
+    vm.runInContext(section("class KeyError extends Error", "const hasAnyKey"), keys);
+    const h = sessionHarness({ getStreamKey: keys.getStreamKey });
+    const starting = h.s.start(); await flush(); h.sockets[0].open(); await starting;
+    h.sockets[0].close(); h.timers.shift()(); await flush(); h.sockets[1].open(); await flush();
+    for (let i = 0; i < h.sockets.length; i++) {
+      const ws = h.sockets[i];
+      assert.deepEqual(Array.from(ws.protocols), ["soniox-api-key", path === "direct" ? "synthetic-user-key" : `snx_temp_synthetic_${i + 1}`]);
+      assert.equal(ws.url, "wss://stt-rt.soniox.com/transcribe-websocket");
+      const config = JSON.parse(ws.sent[0]);
+      assert.ok(!Object.hasOwn(config, "api_key"));
+      assert.equal(config.model, "stt-rt-v5");
+      assert.deepEqual(config.translation, { type: "two_way", language_a: "en", language_b: "es" });
+      assert.equal(config.enable_speaker_diarization, true);
+      assert.equal(config.enable_endpoint_detection, false);
+      assert.ok(!ws.sent[0].includes("synthetic"));
+    }
+    assert.equal(requests.length, 2);
+    assert.ok(requests.every((r) => r.url === (path === "server" ? "api/temporary-key" : "https://api.soniox.com/v1/auth/temporary-api-key")));
+    if (path !== "server") {
+      assert.equal(requests[0].options.headers.Authorization, "Bearer synthetic-user-key");
+      assert.deepEqual(JSON.parse(requests[0].options.body), { usage_type: "transcribe_websocket", expires_in_seconds: 60, single_use: true });
+    }
+    h.s.teardown();
+  });
+}
+test("authentication error frame after open stops capture without retry", async () => {
+  const h = sessionHarness(); const starting = h.s.start(); await flush(); h.sockets[0].open(); await starting;
+  h.sockets[0].onmessage({ data: JSON.stringify({ error_code: 401, error_type: "unauthenticated" }) });
+  h.sockets[0].close();
+  assert.deepEqual(h.errors, ["Authentication failed"]);
+  assert.ok(h.audio.closed); assert.equal(h.states.at(-1), "idle");
+  assert.equal(h.timers.length, 0);
+});
+
+for (const stage of ["module", "resume"]) {
+  test(`Stop while audio ${stage} is pending closes capture immediately`, async () => {
+    const pending = deferred(); const h = audioHarness(undefined, { [stage]: pending.promise });
+    const abort = new AbortController(); const opening = h.openAudio("meeting", () => {}, abort.signal);
+    await flush(); abort.abort();
+    assert.ok(h.micTrack.stopped && h.tabTrack.stopped && h.videoTrack.stopped);
+    assert.equal(h.contexts[0].state, "closed");
+    pending.resolve(); await assert.rejects(opening, { name: "AbortError" });
+  });
+}
+test("meeting selection without audio closes the display before reporting failure", async () => {
+  const h = audioHarness(); h.display.getAudioTracks = () => [];
+  await assert.rejects(h.openAudio("meeting", () => {}), /No meeting audio/);
+  assert.ok(h.videoTrack.stopped); assert.equal(h.contexts.length, 0);
+});
+test("retired sockets cannot append transcript or update input levels", async () => {
+  let ingested = 0, levels = 0;
+  const h = sessionHarness({ transcript: { newEpoch() {}, clearDrafts() {}, ingest() { ingested++; } } });
+  h.s.onLevel = () => levels++;
+  const starting = h.s.start(); await flush(); h.sockets[0].open(); await starting; h.s.teardown();
+  h.sockets[0].onmessage({ data: JSON.stringify({ tokens: [original("Synthetic late text")] }) });
+  h.s.onFrame({ pcm: new ArrayBuffer(2), level: 1 });
+  assert.equal(ingested, 0); assert.equal(levels, 0);
+});

@@ -73,6 +73,7 @@ mic (+ tab audio) → AudioWorklet → 16 kHz PCM s16le → wss://stt-rt.soniox.
 - **`public/sw.js`** is a service worker that lets the installed app open offline. It handles only the app's own files, network first, and never touches Soniox traffic.
 - **`public/pcm-worklet.js`** downmixes and resamples audio to 16 kHz mono PCM, sent in 100 ms frames. It also reports the input level used for the halo around the play button.
 - **`public/app.js`**
+  - WebSocket authentication: the browser sends `["soniox-api-key", key]` as connection subprotocols, using the temporary key (or the user's own key in the existing HTTP 403 fallback). The start message contains no `api_key`. This follows Soniox's [authentication migration](https://soniox.com/docs/guides/migrate-websocket-authentication) ahead of the January 15, 2027 cutoff for message-based authentication.
   - Session config: two-way translation, language hints for the pair, and `enable_speaker_diarization` from the Options switch. With diarization off, endpoint detection comes back on to split turns at natural pauses. The setting is part of a stream's setup, so changing it mid-session applies from the next Play.
   - Views: every turn has an element in each view (pane A, pane B and the stacked column). Switching views is instant and keeps the transcript. Where the browser supports View Transitions, view and theme changes crossfade.
   - Endpoint detection is off while diarization is on, because Soniox notes that early finalization makes speaker attribution less accurate. A new turn starts when the speaker or the language changes. A long monologue is split at a sentence end after about 240 characters, once its translation has caught up.
@@ -83,3 +84,7 @@ mic (+ tab audio) → AudioWorklet → 16 kHz PCM s16le → wss://stt-rt.soniox.
   - **Stop** sends an empty frame and waits for `finished`.
   - If the connection drops, the app reconnects up to 3 times with a new key and keeps the transcript.
   - A screen wake lock keeps the display on during a session.
+
+## Regression checks
+
+Run `npm test` with Node.js 20.6+; no dependencies, API key, microphone, or network are needed. The checks exercise the app's actual transcript, capture, and session code with simulated browser APIs, including startup cancellation, partial capture failures, speaker renaming during incoming text, and WebSocket authentication. They do not replace real Chrome/Edge and Soniox session testing.

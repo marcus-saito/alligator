@@ -615,7 +615,8 @@ class Transcript {
             ];
       panes.forEach((pane, i) => {
         const el = t.els[i];
-        const [who, line] = el.children;
+        const who = el.querySelector(".who");
+        const line = el.querySelector(".line");
         const paneLang = pane.lang;
         const outsidePair =
           t.status === "none" || (t.lang !== prefs.a && t.lang !== prefs.b);
@@ -666,7 +667,9 @@ class Transcript {
   // Stacked view: what was said on top, its translation right underneath.
   renderStacked(t, color) {
     const el = t.els[2];
-    const [who, src, dst] = el.children;
+    const who = el.querySelector(".who");
+    const src = el.querySelector(".src");
+    const dst = el.querySelector(".dst");
     const fill = (line, lang, f, p) => {
       line.children[0].textContent = lang ? lang.toUpperCase() : "";
       line.children[1].textContent = f.trimStart();
@@ -713,65 +716,76 @@ const transcript = new Transcript();
 
 // ───────────────────────── Audio capture ─────────────────────────
 
-async function openAudio(source, onFrame) {
+async function openAudio(source, onFrame, signal) {
   const streams = [];
   let display = null;
-
-  // Ask for the meeting tab first, while the click's user activation is fresh.
-  if (source === "meeting") {
-    display = await navigator.mediaDevices.getDisplayMedia({
-      video: true,
-      audio: {
-        echoCancellation: false,
-        noiseSuppression: false,
-        autoGainControl: false,
-      },
-      systemAudio: "include",
-      selfBrowserSurface: "exclude",
-      preferCurrentTab: false,
-    });
-    if (!display.getAudioTracks().length) {
-      display.getTracks().forEach((t) => t.stop());
-      throw new Error(
-        "No meeting audio was shared. Choose the meeting's tab and switch on “Share tab audio”.",
-      );
-    }
-    display.getVideoTracks().forEach((t) => (t.enabled = false));
-    streams.push(new MediaStream(display.getAudioTracks()));
-  }
-
-  const mic = await navigator.mediaDevices.getUserMedia({
-    audio: {
-      echoCancellation: true,
-      noiseSuppression: true,
-      autoGainControl: true,
-      channelCount: 1,
-    },
-  });
-  streams.push(mic);
-
-  const ctx = new AudioContext({ latencyHint: "interactive" });
-  await ctx.audioWorklet.addModule("pcm-worklet.js");
-  const worklet = new AudioWorkletNode(ctx, "pcm-worklet", {
-    channelCount: 1,
-    channelCountMode: "explicit",
-  });
-  for (const s of streams) ctx.createMediaStreamSource(s).connect(worklet); // summed into mono
-  const sink = ctx.createGain();
-  sink.gain.value = 0;
-  worklet.connect(sink).connect(ctx.destination); // keeps the graph pulling without playing anything
-  worklet.port.onmessage = (e) => onFrame(e.data);
-  await ctx.resume();
-
-  return {
-    display,
-    close() {
-      worklet.port.onmessage = null;
-      streams.forEach((s) => s.getTracks().forEach((t) => t.stop()));
-      display?.getTracks().forEach((t) => t.stop());
-      ctx.close().catch(() => {});
-    },
+  let ctx = null;
+  let worklet = null;
+  const close = () => {
+    signal?.removeEventListener("abort", close);
+    if (worklet) worklet.port.onmessage = null;
+    streams.forEach((s) => s.getTracks().forEach((t) => t.stop()));
+    display?.getTracks().forEach((t) => t.stop());
+    if (ctx && ctx.state !== "closed") ctx.close().catch(() => {});
   };
+  signal?.addEventListener("abort", close, { once: true });
+
+  try {
+    signal?.throwIfAborted();
+    // Ask for the meeting tab first, while the click's user activation is fresh.
+    if (source === "meeting") {
+      display = await navigator.mediaDevices.getDisplayMedia({
+        video: true,
+        audio: {
+          echoCancellation: false,
+          noiseSuppression: false,
+          autoGainControl: false,
+        },
+        systemAudio: "include",
+        selfBrowserSurface: "exclude",
+        preferCurrentTab: false,
+      });
+      if (!display.getAudioTracks().length) {
+        throw new Error(
+          "No meeting audio was shared. Choose the meeting's tab and switch on “Share tab audio”.",
+        );
+      }
+      signal?.throwIfAborted();
+      display.getVideoTracks().forEach((t) => (t.enabled = false));
+      streams.push(new MediaStream(display.getAudioTracks()));
+    }
+
+    const mic = await navigator.mediaDevices.getUserMedia({
+      audio: {
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true,
+        channelCount: 1,
+      },
+    });
+    streams.push(mic);
+    signal?.throwIfAborted();
+
+    ctx = new AudioContext({ latencyHint: "interactive" });
+    await ctx.audioWorklet.addModule("pcm-worklet.js");
+    signal?.throwIfAborted();
+    worklet = new AudioWorkletNode(ctx, "pcm-worklet", {
+      channelCount: 1,
+      channelCountMode: "explicit",
+    });
+    for (const s of streams) ctx.createMediaStreamSource(s).connect(worklet); // summed into mono
+    const sink = ctx.createGain();
+    sink.gain.value = 0;
+    worklet.connect(sink).connect(ctx.destination); // keeps the graph pulling without playing anything
+    worklet.port.onmessage = (e) => onFrame(e.data);
+    await ctx.resume();
+    signal?.throwIfAborted();
+    return { display, close };
+  } catch (err) {
+    // Includes streams returned after Stop while a permission prompt was open.
+    close();
+    throw err;
+  }
 }
 
 // ───────────────────────── Soniox session ─────────────────────────
@@ -934,6 +948,8 @@ class Session {
     this.audio = null;
     this.paused = false;
     this.stopping = false;
+    this.closed = false;
+    this.capture = new AbortController();
     this.reconnects = 0;
     this.keepalive = null;
     this.onState = () => {};
@@ -941,7 +957,11 @@ class Session {
   }
 
   async start() {
-    this.audio = await openAudio(this.source, (frame) => this.onFrame(frame));
+    this.audio = await openAudio(this.source, (frame) => this.onFrame(frame), this.capture.signal);
+    if (this.stopping) {
+      this.audio.close();
+      return;
+    }
     this.audio.display?.getAudioTracks()[0].addEventListener("ended", () => {
       if (!this.stopping) {
         this.onError("Meeting audio sharing ended.");
@@ -952,16 +972,24 @@ class Session {
   }
 
   async connect() {
+    if (this.stopping) return;
     const apiKey = await getStreamKey();
+    if (this.stopping) return;
     transcript.newEpoch(); // a new stream numbers its speakers from 1 again
     await new Promise((resolve, reject) => {
-      const ws = new WebSocket(SONIOX_WS);
+      const ws = new WebSocket(SONIOX_WS, ["soniox-api-key", apiKey]);
       ws.binaryType = "arraybuffer";
       this.ws = ws;
+      let opened = false;
       ws.onopen = () => {
+        if (this.stopping || ws !== this.ws) {
+          ws.close();
+          resolve();
+          return;
+        }
+        opened = true;
         ws.send(
           JSON.stringify({
-            api_key: apiKey,
             model: MODEL,
             audio_format: "pcm_s16le",
             sample_rate: 16000,
@@ -984,13 +1012,26 @@ class Session {
         if (this.paused) this.startKeepalive();
         resolve();
       };
-      ws.onmessage = (e) => this.onMessage(e.data);
-      ws.onerror = () => reject(new Error("Couldn’t reach Soniox."));
-      ws.onclose = () => this.onClose(ws);
+      ws.onmessage = (e) => {
+        if (!this.closed && ws === this.ws) this.onMessage(e.data);
+      };
+      ws.onerror = () => {
+        if (this.stopping) resolve();
+        else reject(new Error("Couldn’t reach Soniox."));
+      };
+      ws.onclose = () => {
+        if (!opened) {
+          if (this.stopping) resolve();
+          else reject(new Error("Couldn’t reach Soniox."));
+          return;
+        }
+        this.onClose(ws);
+      };
     });
   }
 
   onFrame({ pcm, level }) {
+    if (this.stopping) return;
     if (!this.paused) this.onLevel?.(level);
     if (this.paused || this.stopping || this.ws?.readyState !== WebSocket.OPEN)
       return;
@@ -1028,16 +1069,18 @@ class Session {
     this.reconnects += 1;
     this.onState("connecting");
     await new Promise((r) => setTimeout(r, 400 * this.reconnects));
+    if (this.stopping) return;
     try {
       await this.connect();
     } catch (err) {
+      if (this.stopping) return;
       this.onError(err.message);
       this.teardown();
     }
   }
 
   pause() {
-    if (this.paused) return;
+    if (this.paused || this.stopping) return;
     this.paused = true;
     // ~300 ms of silence, then finalize, so the sentence in flight settles cleanly.
     if (this.ws?.readyState === WebSocket.OPEN) {
@@ -1049,7 +1092,7 @@ class Session {
   }
 
   resume() {
-    if (!this.paused) return;
+    if (!this.paused || this.stopping) return;
     this.paused = false;
     this.stopKeepalive();
     transcript.closeTurn();
@@ -1072,6 +1115,7 @@ class Session {
   async stop() {
     if (this.stopping) return;
     this.stopping = true;
+    this.capture.abort();
     this.onState("stopping");
     this.stopKeepalive();
     if (this.ws?.readyState === WebSocket.OPEN) {
@@ -1085,8 +1129,11 @@ class Session {
   }
 
   teardown() {
+    if (this.closed) return;
+    this.closed = true;
     this.stopKeepalive();
     this.stopping = true;
+    this.capture.abort();
     try {
       this.ws?.close();
     } catch {}
@@ -1197,20 +1244,27 @@ async function start() {
   clock.ms = 0;
   transcript.addBreak();
   transcript.closeTurn();
-  session = new Session(prefs);
-  session.onState = setState;
-  session.onError = toast;
+  const current = new Session(prefs);
+  session = current;
+  current.onState = (state) => {
+    if (session === current) setState(state);
+  };
+  current.onError = (message) => {
+    if (session === current) toast(message);
+  };
   let lv = 0;
-  session.onLevel = (level) => {
+  current.onLevel = (level) => {
+    if (session !== current) return;
     lv = Math.max(Math.sqrt(level), lv * 0.7);
     body.style.setProperty("--lv", lv.toFixed(3));
   };
   setState("connecting");
   try {
-    await session.start();
+    await current.start();
   } catch (err) {
+    if (current.stopping || session !== current) return;
     if (err instanceof KeyError && err.kind !== "network") {
-      session?.teardown();
+      current.teardown();
       return openKeySheet(err.message);
     }
     const denied = err.name === "NotAllowedError";
@@ -1219,7 +1273,7 @@ async function start() {
         ? "Permission was declined. Allow microphone (and screen audio for meetings) to continue."
         : err.message,
     );
-    session?.teardown();
+    current.teardown();
   }
 }
 
