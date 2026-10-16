@@ -275,3 +275,34 @@
   from the logo goes straight to Options; when idle, everything is enabled again and
   Tab reaches the first language picker. Console showed only the expected `api/status`
   404 (static server) and the pane's lack of service-worker support.
+
+## 2026-10-16 — Phone layout: Save overlap, page zoom-out, 320 px header
+
+- Handoff item 4 confirmed at 375 px: in the face-to-face layout (split view, "In the
+  room", phone width) Save transcript was positioned top-centre and sat on top of the
+  "Online meeting" source switch.
+- Fix (`public/styles.css`): in that layout Save is a bottom-centre pill (solid
+  background, hairline ring, thumb reach of whoever holds the phone). While it is
+  visible, `#pane-b .feed` gets 72 px bottom padding via
+  `body[...]:has(#save:not([hidden]))`, so it never covers the last line.
+- Found while measuring, and pre-existing since the original build: the two seam
+  hairlines (`.deck::before/::after`) were positioned relative to the deck, which is
+  full width in this layout, so both sat off-screen. The right one widened the
+  document to about 1.14× the screen (375 px → 429 px; 390 → 451), which makes phones
+  zoom the whole page out. Replaced with a single `.deck::before` hairline inside the
+  deck (`left/right: var(--gutter)`, behind the frosted controls). The seam is now
+  visible as originally intended. Note for testing: in-app/emulated browsers showed
+  `innerWidth` ≈ 428 for a 375 px emulation; that was this bug, not an emulator quirk.
+- `public/app.js` `Transcript.render()`: Save's visibility is now set before the
+  stick-to-bottom scroll, so the scroll includes the room Save adds; otherwise the
+  last line stayed under the pill when a session ended.
+- 320 px phones: the header's top row was 12 px too wide. New `@media (max-width:
+  340px)` tightens the bar's column gap and the source buttons' padding.
+- Verified with headless Chrome over the DevTools protocol (mobile emulation, 2×),
+  local static server, `/#demo`, split + room:
+  - Page width equals the screen width at 320, 360, 375 and 390 px (before: 358, 406,
+    429, 451).
+  - At 375×667 (light) and 390×844 (dark): Save visible, inside the viewport, not
+    overlapping the header, controls or the last transcript line. Screenshots checked.
+  - Desktop (1024×768): Save still a plain link at the bottom right; no overflow.
+  - `npm test` 47/47. CSS layout isn't covered by the Node harness.

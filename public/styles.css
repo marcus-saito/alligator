@@ -802,29 +802,37 @@ body:is([data-state="live"], [data-state="paused"], [data-state="stopping"])
     padding: 10px 0;
     animation: none;
   }
-  body[data-layout="split"][data-source="room"] .deck::before,
-  body[data-layout="split"][data-source="room"] .deck::after {
+  /* The seam between the two halves: one hairline across the row, behind the
+     frosted controls. (It must stay inside the deck, which is full width;
+     anything past the screen edge makes phones zoom the whole page out.) */
+  body[data-layout="split"][data-source="room"] .deck::before {
     content: "";
     position: absolute;
     top: 50%;
-    width: calc(50vw - 150px);
+    left: var(--gutter);
+    right: var(--gutter);
     height: 1px;
     background: var(--hair);
-  }
-  body[data-layout="split"][data-source="room"] .deck::before {
-    right: calc(100% + 16px);
-  }
-  body[data-layout="split"][data-source="room"] .deck::after {
-    left: calc(100% + 16px);
+    z-index: -1;
   }
   body[data-layout="split"][data-source="room"] .status {
     display: none;
   }
+  /* Face-to-face: the header is full, so Save sits at the bottom centre as a
+     pill (within thumb reach of whoever holds the phone), and the bottom pane
+     makes room for it so it never covers the last line. */
   body[data-layout="split"][data-source="room"] .save {
-    bottom: auto;
-    top: max(18px, env(safe-area-inset-top));
     right: 50%;
+    bottom: max(14px, env(safe-area-inset-bottom));
     transform: translateX(50%);
+    padding: 8px 16px;
+    border-radius: 999px;
+    background: var(--bg);
+    box-shadow: var(--shadow), 0 0 0 1px var(--hair);
+    text-decoration: none;
+  }
+  body[data-layout="split"][data-source="room"]:has(#save:not([hidden])) #pane-b .feed {
+    padding-bottom: 72px;
   }
 
   .turn.recent {
@@ -1884,4 +1892,14 @@ body.pip:is(
   grid-area: 3 / 1; /* not the main window's named "s" area */
   justify-self: stretch;
   min-height: 0;
+}
+
+/* The smallest phones (320 px): tighten the header's top row so it fits. */
+@media (max-width: 340px) {
+  .bar {
+    column-gap: 8px;
+  }
+  .source button {
+    padding: 7px 8px;
+  }
 }

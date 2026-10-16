@@ -710,6 +710,9 @@ class Transcript {
       this.renderStacked(t, color);
     }
 
+    // Before scrolling: in the face-to-face layout, showing Save adds room at
+    // the bottom of the pane, and the scroll must take that room into account.
+    ui.save.hidden = !(body.dataset.state === "idle" && this.committed > 0);
     views.forEach((pane, i) => {
       pane.querySelector(".turn.recent")?.classList.remove("recent");
       let last = feeds[i].lastElementChild;
@@ -719,7 +722,6 @@ class Transcript {
       pane.classList.toggle("has-content", Boolean(last));
       if (stick[i]) feeds[i].scrollTop = feeds[i].scrollHeight;
     });
-    ui.save.hidden = !(body.dataset.state === "idle" && this.committed > 0);
   }
 
   // Stacked view: what was said on top, its translation right underneath.
