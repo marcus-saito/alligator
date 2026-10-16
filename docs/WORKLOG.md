@@ -140,3 +140,50 @@
 - No changed invariants, additional dependencies, credential use, push, or deploy.
   Original remaining review findings and the pre-existing phone header overlap are
   unchanged. This log update is committed after the implementation commit.
+
+## 2026-10-16 — Delayed translation matching
+
+- Owner approved retaining best-effort speaker/turn matching, including possible
+  mistakes, rather than introducing separate unconfirmed-translation lines.
+- Provider guidance checked: <https://soniox.com/docs/translation/stt-translation>
+  and <https://soniox.com/docs/api-reference/stt/websocket-api>. Translation tokens
+  have no audio timestamps or source-turn identifiers; speaker is optional. Their
+  sequence is useful, but source/translation chunks are not one-to-one aligned.
+- Implemented: inspect all eligible source turns in the current stream instead of
+  only four; retain speaker preference and monotonic progress; estimate completion
+  from all source sentences, including a trailing fragment. The same estimate keeps
+  long monologues from splitting before their multi-sentence translation catches up.
+  Final matching uses committed text only; provisional routing uses its replaceable
+  layer. Untranslated (`none`) turns cannot consume a translation.
+- Sentence segmentation uses the browser's built-in locale-aware Intl.Segmenter,
+  with a punctuation fallback if unavailable; no dependency or provider call added.
+  This is a heuristic: translation can merge/split sentences, speaker metadata can
+  be missing/unmatched, and attribution may still be wrong in those cases. Unknown
+  speaker metadata retains the existing language-based fallback at the owner's
+  request. No definitive alignment or new privacy promise is implied.
+- Files touched: `public/app.js`, `tests/app.test.js`, `README.md`, this log.
+- Implementation commit: `54f00592ed483ea19505d75adffe74c986748511`.
+  Worklog committed in the following documentation commit. Both stay local.
+- Verification: all 45 checks pass (29 existing, 16 focused additions). Added cases
+  cover a seven-turn backlog with and without speaker metadata, delayed second
+  sentences, trailing source fragments, repeated speakers, provisional replacement
+  and finalization, bidirectional queues, reconnect isolation, Japanese sentence
+  endings, decimal punctuation, monologue splits, monotonic progress, the fallback
+  without Intl.Segmenter, exclusion of untranslated turns, and the owner-approved
+  unmatched-speaker fallback. Assertions include both rendered views and export.
+- Baseline: the same tests against `621879e:public/app.js` yield 34 passes and 11
+  failures. Focused mutations restore single-sentence completion (8 failures),
+  restore the four-turn cap (2 failures), or remove epoch isolation (1 failure).
+  Baseline/mutation files and output stayed in temporary storage, outside Git.
+- `node --check` for app and tests, plus `git diff --check`, passed. Tests used
+  Node 24.15.0; Node 20 was not requalified.
+- Chrome smoke: fresh loopback-only static preview on port 5194, CUA Chrome extension,
+  `/#demo`, no keys or microphone. All five final source/translation pairs matched
+  the scripted English/Spanish conversation; split and stacked views rendered,
+  with no captured application warnings/errors. The temporary tab/server were closed;
+  existing owner live-test and font-preview resources were left alone.
+- Not verified with new real audio/provider traffic. Sentence-count mismatches,
+  abbreviations, and absent/unmatched speaker metadata remain sources of best-effort
+  attribution error. No change to endpoint detection, diarization, finalization,
+  authentication, privacy/storage, dependencies, or deployment behavior. No new
+  unconfirmed-translation UI was introduced. No push or deploy.
