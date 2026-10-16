@@ -187,3 +187,22 @@
   attribution error. No change to endpoint detection, diarization, finalization,
   authentication, privacy/storage, dependencies, or deployment behavior. No new
   unconfirmed-translation UI was introduced. No push or deploy.
+
+## 2026-10-16 — Approved release
+
+- Marcus explicitly authorized pushing/deploying the accumulated local work.
+  This supersedes the earlier no-push/no-deploy restriction for this release.
+- Fetched origin before integration: local and remote `main` were both `fc4e164`;
+  all implementation and verification commits through `c154302` descend from it.
+  The working tree was clean. All 45 tests and `git diff --check` passed again.
+- Release includes session cleanup/cancellation and rename fixes, connection-time
+  Soniox authentication, transcript-size preferences, improved best-effort
+  translation matching, focused tests, README changes, and this worklog.
+- Plan: fast-forward `main` and push normally (no force push). The existing
+  `.github/workflows/pages.yml` publishes `public/` on that push. Verify the exact
+  resulting Actions run and public site assets; report the run URL and outcome in
+  the release reply. No DNS, hosting settings, repository settings, or credentials
+  are changed. No real microphone/provider session is part of deployment checks.
+- Files touched for release bookkeeping: `docs/WORKLOG.md` only; this entry is in
+  the final release commit following `c154302`. Earlier per-change commits and
+  verification limitations are recorded above. No `docs/HANDOFF.md` was requested.
