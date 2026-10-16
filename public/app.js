@@ -143,10 +143,12 @@ const prefs = {
   b: store.get("alligator.b", browserLang === "es" ? "en" : "es"),
   source: store.get("alligator.source", "room"),
   layout: store.get("alligator.layout", "split"), // "split" | "stacked"
+  textSize: store.get("alligator.textSize", "large"), // today's size is the maximum
   theme: store.get("alligator.theme", "auto"), // "auto" | "light" | "dark"
   diarize: store.get("alligator.diarize", "on") !== "off", // label who is speaking
 };
 if (prefs.a === prefs.b) prefs.b = prefs.a === "en" ? "es" : "en";
+if (!["small", "medium", "large"].includes(prefs.textSize)) prefs.textSize = "large";
 
 function fillSelect(select, value) {
   const opts = Object.entries(LANGS)
@@ -178,6 +180,7 @@ function applyPrefs() {
       b.setAttribute("aria-checked", String(b.dataset.source === prefs.source)),
     );
   body.dataset.layout = prefs.layout;
+  body.dataset.textSize = prefs.textSize;
   if (prefs.theme === "auto") delete document.documentElement.dataset.theme;
   else document.documentElement.dataset.theme = prefs.theme;
   renderOptions();
@@ -186,6 +189,7 @@ function applyPrefs() {
   store.set("alligator.b", prefs.b);
   store.set("alligator.source", prefs.source);
   store.set("alligator.layout", prefs.layout);
+  store.set("alligator.textSize", prefs.textSize);
   store.set("alligator.theme", prefs.theme);
   store.set("alligator.diarize", prefs.diarize ? "on" : "off");
   transcript.rerender();
@@ -1430,6 +1434,7 @@ function syncPip() {
   if (!pip) return;
   const { doc } = pip;
   doc.body.dataset.state = body.dataset.state;
+  doc.body.dataset.textSize = prefs.textSize;
   if (document.documentElement.dataset.theme) doc.documentElement.dataset.theme = document.documentElement.dataset.theme;
   else delete doc.documentElement.dataset.theme;
   pip.langs.textContent = `${autonym(prefs.a)} ⇄ ${autonym(prefs.b)}`;

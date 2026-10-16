@@ -50,7 +50,7 @@ To preview the UI without a key, open `http://localhost:5173/#demo`. It replays 
 | ■                            | End the session. **Esc** does the same.                                  |
 | Speaker label                | Click to rename that speaker everywhere. **Enter** saves, **Esc** cancels. |
 | ⧉ Pop out                    | Moves the conversation into a small always-on-top window (Chrome and Edge on desktop). Press again, or close that window, to bring it back. |
-| Options (sliders icon)       | **View:** Side by side or Stacked. **Appearance:** Auto (follows your system), Light or Dark. **Tell speakers apart:** turns speaker diarization on or off; the ⓘ explains it in plain language. **Soniox API key:** add, change or remove your key, with step-by-step help. Your choices are remembered in this browser. |
+| Options (sliders icon)       | **View:** Side by side or Stacked. **Transcript size:** Small, Medium or Large (the original size and default), including the pop-out. **Appearance:** Auto (follows your system), Light or Dark. **Tell speakers apart:** turns speaker diarization on or off; the ⓘ explains it in plain language. **Soniox API key:** add, change or remove your key, with step-by-step help. Your choices are remembered in this browser. |
 | Save transcript              | Appears once a session ends and downloads a `.txt` file with timestamps and speaker names. |
 
 **In the room:** only the microphone is used. On a phone or tablet in portrait, the top pane turns 180° so you can lay the device flat between two people, each reading their own half.

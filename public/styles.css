@@ -23,6 +23,7 @@
   --ease: cubic-bezier(0.22, 1, 0.36, 1);
   --gutter: clamp(20px, 4vw, 56px);
   --lv: 0;
+  --transcript-scale: 1;
 
   color-scheme: light;
 }
@@ -378,11 +379,18 @@ body:not([data-state="idle"]) .source {
 }
 
 /* An utterance. Latest is large and dark; history recedes. */
+body[data-text-size="small"] {
+  --transcript-scale: 0.8;
+}
+body[data-text-size="medium"] {
+  --transcript-scale: 0.9;
+}
+
 .turn {
   position: relative;
   margin: 0;
   font-family: var(--serif);
-  font-size: clamp(18px, 1.5vw, 21px);
+  font-size: calc(clamp(18px, 1.5vw, 21px) * var(--transcript-scale));
   line-height: 1.42;
   font-weight: 400;
   color: var(--ink-2);
@@ -395,7 +403,7 @@ body:not([data-state="idle"]) .source {
 }
 .turn.recent {
   color: var(--ink);
-  font-size: clamp(24px, 2.35vw, 34px);
+  font-size: calc(clamp(24px, 2.35vw, 34px) * var(--transcript-scale));
   line-height: 1.28;
   letter-spacing: -0.012em;
 }
@@ -820,7 +828,7 @@ body:is([data-state="live"], [data-state="paused"], [data-state="stopping"])
   }
 
   .turn.recent {
-    font-size: 24px;
+    font-size: calc(24px * var(--transcript-scale));
   }
 }
 
@@ -1849,10 +1857,10 @@ body.pip:is(
   mask-image: linear-gradient(transparent, #000 28px);
 }
 .pip .turn {
-  font-size: 15px;
+  font-size: calc(15px * var(--transcript-scale));
 }
 .pip .turn.recent {
-  font-size: 20px;
+  font-size: calc(20px * var(--transcript-scale));
   line-height: 1.3;
 }
 .pip .turn-s .code {
