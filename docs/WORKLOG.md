@@ -78,3 +78,33 @@
   transcript persistence, or external destinations; no push, deploy, DNS, hosting,
   repository-setting changes, or credential use. `docs/HANDOFF.md` remains deferred
   until the owner requests wrap-up.
+
+## 2026-10-16 — Owner-run live Chrome verification
+
+- Marcus tested the local branch with his own Soniox key and microphone in Chrome.
+  These results are owner-reported in this chat; the assistant did not inspect the
+  key, capture real transcript content, or independently inspect network frames.
+- Passed: live authentication produced speech and translation; pause excluded a
+  sentence spoken while paused; resume continued with earlier transcript intact.
+- Passed: speaker rename in both split and stacked views while text continued
+  arriving; Enter saved and Escape cancelled the change.
+- Passed: owner reports the pop-out works well. Stop from both the main window
+  and pop-out ended capture cleanly; starting again worked and preserved the earlier
+  transcript. No additional claim is made about each pop-out control individually.
+- This resolves the earlier unverified live authentication, microphone, pause/resume,
+  rename, and Stop/restart items for the owner's tested Chrome environment. Meeting
+  tab capture, Edge, network reconnect under live failure, inspecting authentication
+  headers/frames, offline installation, and Node 20 remain unverified.
+- Files touched: `docs/WORKLOG.md` only. Verification: reconciled the explicit owner
+  reports above with the prior implementation record; no provider calls or new tests
+  were needed for this documentation-only change. No invariants changed.
+- Commit: this entry is committed separately before font-sizing work; identify it
+  with `git log -- docs/WORKLOG.md`. No push or deploy authorized or performed.
+
+## 2026-10-16 — Transcript font sizes (in progress)
+
+- Owner approved Small, Medium, and Large in Options, with today's transcript sizes
+  preserved exactly as Large and as the default. Smaller choices should apply to
+  both views and the pop-out, persist as a setting, and leave controls readable.
+- Planned files: `public/index.html`, `public/app.js`, `public/styles.css`, `README.md`,
+  and this log. Implementation, verification, and commit pending.
