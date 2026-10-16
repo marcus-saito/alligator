@@ -231,3 +231,47 @@
   settings, secrets, real transcripts, or owner preview resources were changed.
 - Open questions are collected in the handoff; no task implementation remains
   pending in this session. Future fixes or deployment require a new owner request.
+
+## 2026-10-16 — Claude session resumes: handoff review
+
+- Reviewed `docs/HANDOFF.md` against the repository. Confirmed: `origin/main` and the
+  live site are at `f37816a`; `0b7e362` (handoff + worklog) is local-only and
+  **intentionally not pushed** (Marcus: "not yet", keep it for the next Sol handoff);
+  branch `codex/session-safety-and-soniox-auth` also points at `f37816a`.
+- `npm test`: 45/45 on Node 24.15.0. Scanned the diff since `fc4e164` for key-like
+  strings and new external hosts in `public/`: only synthetic test values, no new hosts.
+- Checked the WebSocket authentication change against Soniox's
+  [migration guide](https://soniox.com/docs/guides/migrate-websocket-authentication)
+  and [WebSocket authentication](https://soniox.com/docs/guides/websocket-authentication):
+  correct, and required before the 15 January 2027 cutoff.
+- New open item: on HTTP 403 from the temporary-key endpoint the browser streams with
+  the user's **long-lived** key in the protocols list. Soniox allows keys there but its
+  browser guidance only shows `snx_temp_` keys, and browsers reject protocol entries
+  containing characters outside RFC 7230 tokens. This path has not been exercised live.
+  Needs a test with a key lacking the "Temporary API keys" permission, or the fallback
+  could be replaced by asking users to enable that permission.
+- Sol's preview servers on ports **5174** and **5184** (python `http.server`, cwd = repo
+  root) were found still running. Marcus asked to leave them up for now; Sol should
+  know about them.
+
+## 2026-10-16 — Lock language and source controls during a session (keyboard too)
+
+- Problem (handoff item 1): `body:not([data-state="idle"]) .pair/.source` used
+  `pointer-events: none`, which blocks the mouse only. Keyboard users could still
+  change the language pair or audio source mid-session, so the UI disagreed with the
+  running stream's configuration.
+- Fix in `public/app.js`, new `// ── Session lock ──` block before the language/source
+  handlers: `sessionLocked()` and `syncSessionLock()` set `disabled` on both language
+  selects, the swap button and both source buttons, and `aria-disabled="true"` on the
+  `.pair` and `.source` groups, whenever the state isn't `idle`. `setState()` calls
+  `syncSessionLock()`. The swap, source and language handlers also refuse changes while
+  locked, and `pickLang` puts the pickers back to the running stream's languages.
+  CSS unchanged (the dimmed look and pointer block still apply).
+- Tests: 2 new in `tests/app.test.js` (lock/unlock across connecting, live, paused,
+  stopping, idle; handlers refuse then accept changes). 47/47 pass. Mutations: removing
+  the `pickLang` guard, or never disabling controls, each fail 1 test.
+- Browser check (in-app Chromium pane, `/#demo` on a static server on port 5196):
+  during the demo session all five controls are `disabled`, can't be focused, and Tab
+  from the logo goes straight to Options; when idle, everything is enabled again and
+  Tab reaches the first language picker. Console showed only the expected `api/status`
+  404 (static server) and the pane's lack of service-worker support.

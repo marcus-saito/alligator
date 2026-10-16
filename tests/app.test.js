@@ -479,3 +479,65 @@ test("untranslated source turns do not consume delayed translations", () => {
   assert.equal(t.turns[0].trans, "");
   assert.equal(t.turns[1].trans, "Traduce esto.");
 });
+
+// Session lock: language pair and audio source can't change mid-session,
+// whether by mouse, keyboard or a stray event.
+function lockHarness(state) {
+  const control = (extra = {}) => ({
+    disabled: false, listeners: {}, attrs: {},
+    addEventListener(k, fn) { this.listeners[k] = fn; },
+    setAttribute(k, v) { this.attrs[k] = v; },
+    removeAttribute(k) { delete this.attrs[k]; },
+    ...extra,
+  });
+  const sources = [control({ dataset: { source: "room" } }), control({ dataset: { source: "meeting" } })];
+  const groups = [control(), control()];
+  const context = vm.createContext({
+    body: { dataset: { state } },
+    ui: { langA: control({ value: "en" }), langB: control({ value: "es" }), swap: control() },
+    prefs: { a: "en", b: "es", source: "room" },
+    applied: 0,
+    document: {
+      querySelectorAll: (sel) => (sel === ".source button" ? sources : sel === ".pair, .source" ? groups : []),
+    },
+  });
+  vm.runInContext("function applyPrefs() { applied++; }", context);
+  vm.runInContext(section("// ── Session lock ──", "// ───────────────────────── Options"), context);
+  return { context, sources, groups };
+}
+
+test("session lock disables the language and source controls while a session runs", () => {
+  for (const state of ["connecting", "live", "paused", "stopping"]) {
+    const { context, sources, groups } = lockHarness(state);
+    vm.runInContext("syncSessionLock()", context);
+    const { ui } = context;
+    assert.ok([ui.langA, ui.langB, ui.swap, ...sources].every((c) => c.disabled), `controls disabled when ${state}`);
+    assert.ok(groups.every((g) => g.attrs["aria-disabled"] === "true"), `groups marked when ${state}`);
+  }
+  const { context, sources, groups } = lockHarness("idle");
+  for (const c of [context.ui.langA, sources[0]]) c.disabled = true;
+  groups[0].attrs["aria-disabled"] = "true";
+  vm.runInContext("syncSessionLock()", context);
+  assert.ok([context.ui.langA, context.ui.langB, context.ui.swap, ...sources].every((c) => !c.disabled));
+  assert.ok(groups.every((g) => !("aria-disabled" in g.attrs)));
+});
+
+test("session lock refuses language, swap and source changes mid-session and allows them when idle", () => {
+  const { context, sources } = lockHarness("live");
+  const { ui, prefs } = context;
+  ui.langA.value = "ja";
+  ui.langA.listeners.change();
+  ui.swap.listeners.click();
+  sources[1].listeners.click();
+  assert.deepEqual({ ...prefs }, { a: "en", b: "es", source: "room" });
+  assert.equal(ui.langA.value, "en", "picker restored to the running language");
+  assert.equal(context.applied, 0);
+
+  context.body.dataset.state = "idle";
+  ui.langA.value = "ja";
+  ui.langA.listeners.change();
+  ui.swap.listeners.click();
+  sources[1].listeners.click();
+  assert.deepEqual({ ...prefs }, { a: "es", b: "ja", source: "meeting" });
+  assert.equal(context.applied, 3);
+});

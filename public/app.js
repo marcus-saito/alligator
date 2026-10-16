@@ -199,20 +199,45 @@ function applyPrefs() {
 fillSelect(ui.langA, prefs.a);
 fillSelect(ui.langB, prefs.b);
 
+// ── Session lock ──
+// The language pair and audio source are part of a running stream's setup, so
+// they're locked until it stops: disabled for mouse, keyboard and screen
+// readers alike, with the handlers refusing changes as a second line of defence.
+const sessionLocked = () => body.dataset.state !== "idle";
+
+function syncSessionLock() {
+  const locked = sessionLocked();
+  for (const el of [ui.langA, ui.langB, ui.swap, ...document.querySelectorAll(".source button")]) {
+    el.disabled = locked;
+  }
+  for (const group of document.querySelectorAll(".pair, .source")) {
+    if (locked) group.setAttribute("aria-disabled", "true");
+    else group.removeAttribute("aria-disabled");
+  }
+}
+
 ui.langA.addEventListener("change", () => pickLang("a", ui.langA.value));
 ui.langB.addEventListener("change", () => pickLang("b", ui.langB.value));
 ui.swap.addEventListener("click", () => {
+  if (sessionLocked()) return;
   [prefs.a, prefs.b] = [prefs.b, prefs.a];
   applyPrefs();
 });
 document.querySelectorAll(".source button").forEach((b) =>
   b.addEventListener("click", () => {
+    if (sessionLocked()) return;
     prefs.source = b.dataset.source;
     applyPrefs();
   }),
 );
 
 function pickLang(side, code) {
+  if (sessionLocked()) {
+    // Put the pickers back to what the running stream is using.
+    ui.langA.value = prefs.a;
+    ui.langB.value = prefs.b;
+    return;
+  }
   const other = side === "a" ? "b" : "a";
   if (prefs[other] === code) prefs[other] = prefs[side]; // picking the other side's language swaps them
   prefs[side] = code;
@@ -1201,6 +1226,7 @@ const clock = { ms: 0, since: 0, timer: null };
 
 function setState(state) {
   body.dataset.state = state;
+  syncSessionLock();
   ui.main.setAttribute(
     "aria-label",
     state === "live" ? "Pause" : state === "paused" ? "Resume" : "Start",
