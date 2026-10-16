@@ -98,13 +98,45 @@
 - Files touched: `docs/WORKLOG.md` only. Verification: reconciled the explicit owner
   reports above with the prior implementation record; no provider calls or new tests
   were needed for this documentation-only change. No invariants changed.
-- Commit: this entry is committed separately before font-sizing work; identify it
-  with `git log -- docs/WORKLOG.md`. No push or deploy authorized or performed.
+- Commit: `c49e944` records these results separately before font-sizing work.
+  No push or deploy authorized or performed.
 
-## 2026-10-16 — Transcript font sizes (in progress)
+## 2026-10-16 — Transcript font sizes
 
 - Owner approved Small, Medium, and Large in Options, with today's transcript sizes
   preserved exactly as Large and as the default. Smaller choices should apply to
   both views and the pop-out, persist as a setting, and leave controls readable.
-- Planned files: `public/index.html`, `public/app.js`, `public/styles.css`, `README.md`,
-  and this log. Implementation, verification, and commit pending.
+- Files touched: `public/index.html`, `public/app.js`, `public/styles.css`, `README.md`,
+  and this log. Added the existing segmented-radio pattern to Options. Large uses
+  the original responsive sizes; Medium is 90% and Small is 80% of those sizes.
+  The scale affects transcript sentences only; controls, speaker labels, and
+  language tags keep their existing sizes. This avoids shrinking click targets.
+- The setting persists under `alligator.textSize`, defaults to Large, validates
+  stored choices, and is copied into the Document Picture-in-Picture window.
+  Reused CSS variables rather than page zoom or separate per-view size tables, so
+  desktop, phone, and pop-out retain their original relative sizing.
+- Implementation commit: `437d9772e11579b52aa1f425ec35617f157e729e`.
+  All 29 regression checks, JavaScript syntax, and diff whitespace checks pass.
+- Actual Chrome checks used only synthetic demo text and covered both themes and
+  views, desktop and 390 x 844, click and arrow-key selection, persistence across
+  reload, and visual size changes in an already-open Document Picture-in-Picture
+  window. The pane returned correctly after closing the pop-out; no captured
+  application warnings/errors appeared. The temporary viewport was reset.
+- Settled computed desktop sizes (history/latest): Large 20.91/32.759 px,
+  Medium 18.819/29.4831 px, Small 16.728/26.2072 px. Large exactly matches the
+  original formulas at this viewport. The Options button remained 36 px at every
+  size. At phone width, latest text measured 19.2 px for Small and 21.6 px for Medium.
+- No new automated tests were added for this reversible visual preference;
+  browser interaction/computed-style checks verify the actual CSS and existing
+  regression checks protect the session/transcript behavior.
+- Preview observation: the existing local origin initially mixed fresh JavaScript
+  with stale HTML/CSS. A reload refreshed the markup but not the old stylesheet in
+  this run. Continued verification on a separate loopback origin (port 5184), where
+  the new CSS scale was present. No cache deletion or user-key changes were made.
+- Preview remains available at `http://127.0.0.1:5184/#demo`, with Large selected.
+  This is a separate origin without the owner's saved key. The original live-test
+  tab was not reloaded or closed. Live Soniox sessions with the new size preference
+  were not retested; changes affect rendering and settings only.
+- No changed invariants, additional dependencies, credential use, push, or deploy.
+  Original remaining review findings and the pre-existing phone header overlap are
+  unchanged. This log update is committed after the implementation commit.
