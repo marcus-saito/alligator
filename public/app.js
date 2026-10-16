@@ -336,6 +336,7 @@ class Transcript {
     this.pendingDirty = new Set();
     this.epoch = 0; // bumps per Soniox stream; speaker numbers restart with each stream
     this.names = new Map(); // "epoch:speaker" → name the user typed
+    this.segmenters = new Map();
   }
 
   newEpoch() {
@@ -413,7 +414,7 @@ class Transcript {
       return;
     }
     if (tok.translation_status === "translation") {
-      const t = this.translationTarget(tok);
+      const t = this.translationTarget(tok, pending);
       if (!t) return;
       t.transLang = tok.language;
       if (pending) t.transP += text;
@@ -445,31 +446,59 @@ class Transcript {
       return false;
     return (
       t.status !== "original" ||
-      SENTENCE_END.test(t.trans + (pending ? t.transP : ""))
+      this.translationCaughtUp(t, pending)
+    );
+  }
+
+  sentenceCount(text, lang) {
+    if (!text.trim()) return 0;
+    if (!Intl.Segmenter) {
+      const ends = text.match(/[.!?。！？…]+[”"'»)\]]*(?=\s|$)|[。！？…]+/gu) || [];
+      return Math.max(1, ends.length + (SENTENCE_END.test(text) ? 0 : 1));
+    }
+    if (!this.segmenters.has(lang)) {
+      const locale = LANGS[lang] ? lang : undefined;
+      this.segmenters.set(lang, new Intl.Segmenter(locale, { granularity: "sentence" }));
+    }
+    return [...this.segmenters.get(lang).segment(text)].filter((s) => s.segment.trim()).length;
+  }
+
+  translationCaughtUp(t, pending) {
+    const orig = t.orig + (pending ? t.origP : "");
+    const trans = t.trans + (pending ? t.transP : "");
+    // This is a progress estimate, not an alignment guarantee: a translation
+    // can merge or split sentences. Provisional punctuation never routes finals.
+    return (
+      SENTENCE_END.test(trans) &&
+      this.sentenceCount(trans, t.transLang) >= this.sentenceCount(orig, t.lang)
     );
   }
 
   // Translation tokens trail the speech they translate, so by the time one
   // arrives a newer turn (another speaker, same language) may already exist.
   // Prefer the speaker's own turn when the token says who it is; otherwise hand
-  // it to the oldest recent turn whose translation hasn't finished a sentence.
-  translationTarget(tok) {
+  // it to the oldest unfinished source turn. Count the source's sentences too:
+  // one translated full stop does not finish a multi-sentence utterance.
+  translationTarget(tok, pending) {
     const recent = [];
-    for (let i = this.turns.length - 1; i >= 0 && recent.length < 4; i--) {
+    for (let i = this.turns.length - 1; i >= 0; i--) {
       const t = this.turns[i];
       if (t.epoch !== this.epoch) break;
-      if (t.lang === tok.source_language) recent.unshift(t);
+      if (t.status === "original" && t.lang === tok.source_language) recent.push(t);
     }
+    recent.reverse();
     if (!recent.length) return null;
     const own =
       tok.speaker != null
         ? recent.filter((t) => t.speaker === tok.speaker)
         : [];
     const pool = own.length ? own : recent;
-    for (let i = 0; i < pool.length - 1; i++) {
-      const laterStarted = pool.slice(i + 1).some((n) => n.trans || n.transP);
-      if (!laterStarted && !SENTENCE_END.test(pool[i].trans + pool[i].transP))
-        return pool[i];
+    let lastStarted = pool.length - 1;
+    while (lastStarted > 0 && !(pool[lastStarted].trans || (pending && pool[lastStarted].transP))) {
+      lastStarted -= 1;
+    }
+    for (let i = lastStarted; i < pool.length - 1; i++) {
+      if (!this.translationCaughtUp(pool[i], pending)) return pool[i];
     }
     return pool.at(-1);
   }

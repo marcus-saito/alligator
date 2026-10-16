@@ -67,7 +67,7 @@ function transcriptHarness() {
     document: { createElement: (tag) => new Element(tag) },
     ui: { paneA: pane("en"), paneB: pane("es"), paneS: pane(""), save: {} },
     body: { dataset: { state: "live" } }, prefs: { a: "en", b: "es" },
-    RTL: new Set(), SPLIT_AFTER_CHARS: 240, SENTENCE_END: /[.!?。！？…][”"'»)\]]*\s*$/u,
+    LANGS: { en: [], es: [], ja: [] }, RTL: new Set(), SPLIT_AFTER_CHARS: 240, SENTENCE_END: /[.!?。！？…][”"'»)\]]*\s*$/u,
     SPEAKER_COLORS: ["blue", "green"],
   });
   vm.runInContext(section("class Transcript {", "const transcript =") + "globalThis.transcript = new Transcript();", context);
@@ -323,4 +323,159 @@ test("retired sockets cannot append transcript or update input levels", async ()
   h.sockets[0].onmessage({ data: JSON.stringify({ tokens: [original("Synthetic late text")] }) });
   h.s.onFrame({ pcm: new ArrayBuffer(2), level: 1 });
   assert.equal(ingested, 0); assert.equal(levels, 0);
+});
+
+const speech = (text, speaker, language = "en") => ({
+  text, speaker, language, is_final: true, translation_status: "original",
+});
+const translated = (text, speaker, source_language = "en", is_final = true) => ({
+  text, speaker, source_language, language: source_language === "en" ? "es" : "en",
+  is_final, translation_status: "translation",
+});
+
+test("a delayed translation with a speaker can find its source beyond four turns", () => {
+  const { transcript: t } = transcriptHarness();
+  for (let speaker = 1; speaker <= 7; speaker++) t.ingest([speech(`Message ${speaker}.`, String(speaker))]);
+  t.ingest([translated("Traducción del primer mensaje.", "1")]);
+  assert.equal(t.turns[0].trans, "Traducción del primer mensaje.");
+  for (const turn of t.turns.slice(1)) assert.equal(turn.trans, "");
+});
+
+test("an unknown speaker retains the owner-approved best-effort language fallback", () => {
+  const { transcript: t } = transcriptHarness();
+  t.ingest([speech("A message.", "1")]);
+  t.ingest([translated("Un mensaje.", "9")]);
+  assert.equal(t.turns[0].trans, "Un mensaje.");
+});
+
+test("a speaker-tagged translation keeps multiple sentences on its unique source", () => {
+  const { transcript: t } = transcriptHarness();
+  t.ingest([speech("Hello. How are you?", "1"), translated("Hola.", "1")]);
+  t.ingest([speech("My turn.", "2"), translated(" ¿Cómo estás?", "1")]);
+  assert.equal(t.turns[0].trans, "Hola. ¿Cómo estás?");
+  assert.equal(t.turns[1].trans, "");
+});
+
+test("speakerless delayed second sentence stays with the multi-sentence source", () => {
+  const { transcript: t } = transcriptHarness();
+  t.ingest([speech("Hello. How are you?", "1"), translated("Hola.")]);
+  t.ingest([speech("My turn.", "2"), translated(" ¿Cómo estás?")]);
+  t.ingest([translated("Mi turno.")]);
+  assert.equal(t.turns[0].trans, "Hola. ¿Cómo estás?");
+  assert.equal(t.turns[1].trans, "Mi turno.");
+  assert.equal(t.turns[0].els[1].querySelector(".f").textContent, "Hola. ¿Cómo estás?");
+  assert.equal(t.turns[0].els[2].querySelector(".dst").children[1].textContent, "Hola. ¿Cómo estás?");
+  assert.match(t.toText(), /Hola\. ¿Cómo estás\?/);
+});
+
+test("a trailing source fragment also waits for its translation", () => {
+  const { transcript: t } = transcriptHarness();
+  t.ingest([speech("Hello. Another thought", "1"), translated("Hola.")]);
+  t.ingest([speech("Next speaker.", "2"), translated(" Otro pensamiento.")]);
+  assert.equal(t.turns[0].trans, "Hola. Otro pensamiento.");
+  assert.equal(t.turns[1].trans, "");
+});
+
+test("speakerless translations can catch up over more than four waiting turns", () => {
+  const { transcript: t } = transcriptHarness();
+  for (let i = 1; i <= 7; i++) t.ingest([speech(`Message ${i}.`, String(i))]);
+  for (let i = 1; i <= 7; i++) t.ingest([translated(`Mensaje ${i}.`)]);
+  assert.deepEqual(Array.from(t.turns, (turn) => turn.trans), Array.from({ length: 7 }, (_, i) => `Mensaje ${i + 1}.`));
+});
+
+test("speaker-tagged repeated turns still use the source's full sentence progress", () => {
+  const { transcript: t } = transcriptHarness();
+  t.ingest([speech("First. Second?", "1"), translated("Primero.", "1")]);
+  t.ingest([speech("Interruption.", "2"), speech("Third.", "1")]);
+  t.ingest([translated(" ¿Segundo?", "1"), translated("Tercero.", "1")]);
+  assert.equal(t.turns[0].trans, "Primero. ¿Segundo?");
+  assert.equal(t.turns[1].trans, "");
+  assert.equal(t.turns[2].trans, "Tercero.");
+});
+
+test("provisional translation completion is replaced without moving later finals", () => {
+  const { transcript: t } = transcriptHarness();
+  t.ingest([speech("First. Second?", "1"), translated("Primero.")]);
+  t.ingest([speech("Next turn.", "2"), translated(" ¿Segundo?", undefined, "en", false), translated("Siguiente.", undefined, "en", false)]);
+  assert.equal(t.turns[0].transP, " ¿Segundo?");
+  assert.equal(t.turns[1].transP, "Siguiente.");
+  t.ingest([translated(" Segundo", undefined, "en", false)]);
+  assert.equal(t.turns[0].transP, " Segundo");
+  assert.equal(t.turns[1].transP, "");
+  t.ingest([translated(" ¿Segundo?"), translated("Siguiente.")]);
+  assert.equal(t.turns[0].trans, "Primero. ¿Segundo?");
+  assert.equal(t.turns[1].trans, "Siguiente.");
+  assert.equal(t.turns[0].transP + t.turns[1].transP, "");
+});
+
+test("bidirectional translation backlogs remain separate", () => {
+  const { transcript: t } = transcriptHarness();
+  t.ingest([speech("Hello. How are you?", "1"), translated("Hola.")]);
+  t.ingest([speech("Bien. ¿Y tú?", "2", "es"), speech("Wait.", "3")]);
+  t.ingest([translated("Fine.", undefined, "es"), translated(" ¿Cómo estás?")]);
+  t.ingest([translated(" And you?", undefined, "es"), translated("Espera.")]);
+  assert.equal(t.turns[0].trans, "Hola. ¿Cómo estás?");
+  assert.equal(t.turns[1].trans, "Fine. And you?");
+  assert.equal(t.turns[2].trans, "Espera.");
+});
+
+test("a reconnect starts a new matching epoch without changing old translations", () => {
+  const { transcript: t } = transcriptHarness();
+  t.ingest([speech("First. Still waiting?", "1"), translated("Primero.")]);
+  t.clearDrafts(); t.newEpoch();
+  t.ingest([speech("New stream.", "1"), translated("Nueva conexión.")]);
+  assert.equal(t.turns[0].trans, "Primero.");
+  assert.equal(t.turns[1].trans, "Nueva conexión.");
+});
+
+test("language-native sentence endings work without spaces between sentences", () => {
+  const { transcript: t } = transcriptHarness();
+  t.ingest([speech("こんにちは。元気ですか？", "1", "ja"), translated("Hello.", undefined, "ja")]);
+  t.ingest([speech("次です。", "2", "ja"), translated(" How are you?", undefined, "ja"), translated("Next.", undefined, "ja")]);
+  assert.equal(t.turns[0].trans, "Hello. How are you?");
+  assert.equal(t.turns[1].trans, "Next.");
+});
+
+test("an unfinished translation prevents premature splitting of a long monologue", () => {
+  const { transcript: t } = transcriptHarness();
+  const first = `${"This is a long sentence with several words ".repeat(6)}. Another sentence?`;
+  t.ingest([speech(first, "1"), translated("Una frase.", "1")]);
+  t.ingest([speech(" A continuation.", "1")]);
+  assert.equal(t.turns.length, 1);
+  t.ingest([translated(" ¿Otra frase? Una continuación.", "1"), speech(" A new turn.", "1")]);
+  assert.equal(t.turns.length, 2);
+});
+
+test("the sentence estimate treats decimal punctuation as part of a sentence", () => {
+  const { transcript: t } = transcriptHarness();
+  t.ingest([speech("It costs 3.50 dollars.", "1"), speech("Next speaker.", "2")]);
+  t.ingest([translated("Cuesta 3,50 dólares."), translated("Siguiente persona.")]);
+  assert.equal(t.turns[0].trans, "Cuesta 3,50 dólares.");
+  assert.equal(t.turns[1].trans, "Siguiente persona.");
+});
+
+test("speaker metadata can advance the stream without reopening an older backlog", () => {
+  const { transcript: t } = transcriptHarness();
+  t.ingest([speech("First. Second?", "1"), translated("Primero.")]);
+  t.ingest([speech("New turn.", "2"), translated("Nuevo", "2")]);
+  t.ingest([translated(" turno.")]);
+  assert.equal(t.turns[0].trans, "Primero.");
+  assert.equal(t.turns[1].trans, "Nuevo turno.");
+});
+
+test("sentence-progress fallback works when Intl.Segmenter is unavailable", () => {
+  const h = transcriptHarness(); vm.runInContext("Intl.Segmenter = undefined;", h);
+  const t = h.transcript;
+  t.ingest([speech("First. Second?", "1"), translated("Primero.")]);
+  t.ingest([speech("Next turn.", "2"), translated(" ¿Segundo?"), translated("Siguiente.")]);
+  assert.equal(t.turns[0].trans, "Primero. ¿Segundo?");
+  assert.equal(t.turns[1].trans, "Siguiente.");
+});
+
+test("untranslated source turns do not consume delayed translations", () => {
+  const { transcript: t } = transcriptHarness();
+  t.ingest([{ ...speech("Untranslated text.", "1"), translation_status: "none" }]);
+  t.ingest([speech("Translate this.", "2"), translated("Traduce esto.")]);
+  assert.equal(t.turns[0].trans, "");
+  assert.equal(t.turns[1].trans, "Traduce esto.");
 });
