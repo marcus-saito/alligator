@@ -306,3 +306,87 @@
     overlapping the header, controls or the last transcript line. Screenshots checked.
   - Desktop (1024×768): Save still a plain link at the bottom right; no overflow.
   - `npm test` 47/47. CSS layout isn't covered by the Node harness.
+
+## 2026-10-16 — Codex follow-up: real-audio qualification
+
+- Read the owner's follow-up request, `docs/HANDOFF.md`, and Claude's newest worklog
+  entries before starting. Confirmed clean local `main` at
+  `0c5b301c70ea7e35442a4733a57de72e321ed89b`, three commits ahead of tracking
+  `origin/main` at `f37816acbe07fd765385208b100693cfb1994b11` (`0b7e362`, `e78cbc6`,
+  `0c5b301` are local only). No push, deploy, or settings changes authorized.
+- Reran `npm test`: 47/47 pass on Node 24.15.0. Port 5173 had no listener. Preserved
+  existing Python previews on 127.0.0.1:5174 (PID 66981) and :5184 (PID 67882), as
+  requested; do not stop them without Marcus's OK. Started the requested `npm start`
+  server for testing latest local code on `http://localhost:5173`.
+- Next: owner-run translation matching, same-language speaker changes, monologue
+  splitting, and a short Wi-Fi interruption/reconnect; then owner-created restricted
+  key with real-time STT enabled and Temporary API keys disabled. Results pending.
+  Never request/read/paste the owner's key or copy real transcript text into Git.
+  Capture only observed patterns in this log, with no raw headers/network exports.
+- Retain best-effort matching, no unconfirmed-speaker UI, and existing endpoint/
+  diarization/finalization choices. A restricted-key failure requires agreement on
+  the proposed permission-message replacement before implementation. Other remaining
+  items wait for the owner's direction. No application files changed in this step.
+- Files touched: `docs/WORKLOG.md`; no commit yet. Update the handoff since `0c5b301`
+  and commit locally when Marcus requests wrap-up.
+- Owner-reported A1 result on the latest local app: the whole multi-sentence
+  translation stayed with the correct speaker's turn. Marcus also tried interjecting
+  himself and reported that it seemed fine. No real transcript text or credentials
+  were collected or recorded. This does not yet qualify two distinct voices speaking
+  the same language back to back. That check, long-monologue splitting, a brief
+  Wi-Fi interruption/reconnect, and the restricted-key fallback remain pending.
+- Owner-reported A2 result: two distinct voices received separate speaker labels,
+  and each translation stayed with the correct speaker, including the first
+  speaker's final words. Marcus also tested long speech and reported that it seemed
+  fine; no specific chunk-length or performance measurement was reported. Treat
+  this as a successful qualitative long-speech check, not a measured performance
+  qualification. No real transcript text or credentials recorded. A brief Wi-Fi
+  interruption/reconnect and the restricted-key fallback remain pending.
+- Owner-reported A4 result: after the requested short Wi-Fi interruption, Alligator
+  reconnected automatically, preserved the earlier transcript, and resumed
+  translating. No error was reported. This completes the requested qualitative A
+  checks in Marcus's local Chrome environment; it does not measure lost audio during
+  the outage or qualify other browsers/network conditions. Restricted-key fallback
+  is next and remains unverified. No application changes, push, or deploy.
+- Owner-reported B result: the restricted test key (Speech-to-text, real-time on;
+  Temporary API keys off) connected and translated successfully in the latest local
+  app. Marcus confirmed he restored his normal key and deleted the test key in the
+  Soniox Console. No error or odd behavior was reported; no fallback replacement
+  is proposed or implemented.
+- This completes the requested owner-run A/B checks successfully in the tested local
+  Chrome environment. The restricted-key fallback is now live-tested for that key
+  format and environment; raw HTTP responses and WebSocket headers were not inspected,
+  and compatibility with every possible long-lived-key format is not established.
+  No keys, real transcript text, or network exports were collected or stored in Git.
+- At Marcus's explicit direction, updated this worklog only and did not push or
+  deploy. No application changes or additional tests were needed for the reported
+  results. The previously observed automated gate remains 47/47. This log remains
+  uncommitted until wrap-up; the handoff and a local commit are deferred as requested.
+
+## 2026-10-16 — Follow-up wrap-up and release guidance for Claude
+
+- Marcus requested an updated handoff and a local commit, explicitly without push
+  or deployment. Updated `docs/HANDOFF.md` with everything since `0c5b301`: no
+  application changes, successful owner-reported A1/A2/A3/A4/B checks, restricted-key
+  cleanup, retained best-effort/fallback behavior, evidence limits, and deferred work.
+  Marked the old unresolved keyboard/phone findings as fixed by Claude's preceding
+  commits, and distinguished original release evidence from follow-up results.
+- Checked current Git state before writing: `main` at `0c5b301`, tracking `origin/main`
+  at `f37816a`, with only this session's worklog edit present. No remote fetch or live
+  asset recheck during wrap-up. Three commits were already local only; this
+  documentation commit becomes the fourth. Exact hash is supplied in the reply and
+  available with `git log -1 --format=%H -- docs/HANDOFF.md`.
+- Rechecked listeners: Node PID 71303 on `*:5173`; Python PID 66981 on loopback
+  `:5174`; Python PID 67882 on loopback `:5184`. All three were left running. The
+  latter two remain explicitly owner-preserved. No transcript tab was reloaded or
+  closed; keys/configuration were not inspected or changed.
+- Added Claude release instructions: review all local commits, fetch/check the
+  remote, rerun the 47-test gate and whitespace checks, obtain Marcus's explicit
+  push/deploy approval, push main normally, watch Pages for the exact SHA, verify
+  live assets, record/report results, and preserve preview resources. This handoff
+  does not grant approval to push yet or authorize changes to hosting/settings.
+- Files touched: `docs/HANDOFF.md`, `docs/WORKLOG.md` only. Verification: reconciled
+  current Git/listener state, owner reports, and prior implementation/test evidence;
+  `git diff --check` passed. No repeat application tests for prose-only changes;
+  the observed application gate remains 47/47 on Node 24.15.0. No invariants changed,
+  application edits, push, or deployment. Commit locally as requested.

@@ -2,31 +2,38 @@
 
 Prepared October 16, 2026 (Asia/Tokyo). Owner: Marcus.
 
-## Current state and release boundary
+## Current state and release boundary (updated October 16, 2026)
 
 - Repository: <https://github.com/marcus-saito/alligator>; local checkout:
-  `/Users/marcus/Code/github/alligator`.
-- Baseline for this handoff: `fc4e16401931db164d41359d50d4374b03c92d60`.
-- All application changes described below are on `main` and deployed at
-  <https://alligator.chat>, at `f37816acbe07fd765385208b100693cfb1994b11`.
-- [GitHub Pages run 38858835902](https://github.com/marcus-saito/alligator/actions/runs/38858835902)
-  completed successfully. Afterward, public `index.html`, `app.js`, `styles.css`,
-  `pcm-worklet.js`, and `sw.js` each returned HTTP 200 and matched the local release
-  byte-for-byte by SHA-256. This establishes deployed assets, not a new live audio test.
-- The initial no-push/no-deploy restriction was explicitly lifted by Marcus for
-  that release. It was a normal fast-forward and push, with no force push or changes
-  to DNS, GitHub Pages settings, repository settings, or the deployment workflow.
-- This handoff and the final worklog update are a subsequent **local-only,
-  documentation-only commit**. They have not been pushed and do not change the live
-  app. Resolve their hash with `git log -1 --format=%H -- docs/HANDOFF.md`; Marcus
-  receives it in the wrap-up reply. Do not assume release permission is standing
-  permission to deploy future work; obtain Marcus's explicit OK for another push.
-- The implementation branch `codex/session-safety-and-soniox-auth` was retained.
-  Read `docs/WORKLOG.md` for chronological evidence; earlier statements such as
-  "local only" or "unverified" describe the stage at which those entries were made.
-  Later live-test and release entries supersede them.
+  `/Users/marcus/Code/github/alligator`, branch `main`.
+- Original implementation baseline: `fc4e16401931db164d41359d50d4374b03c92d60`.
+  Follow-up baseline for this session: `0c5b301c70ea7e35442a4733a57de72e321ed89b`.
+- Local `main` before this documentation commit is `0c5b301`, three commits ahead
+  of tracking `origin/main` at `f37816acbe07fd765385208b100693cfb1994b11`:
+  `0b7e362` (previous handoff), `e78cbc6` (keyboard lock), and `0c5b301` (phone fixes).
+  This handoff/worklog commit becomes the fourth local-only commit. Resolve its
+  exact hash with `git log -1 --format=%H -- docs/HANDOFF.md` or Marcus's wrap-up reply.
+- Last verified live release at <https://alligator.chat>: `f37816a`.
+  [GitHub Pages run 38858835902](https://github.com/marcus-saito/alligator/actions/runs/38858835902)
+  succeeded for that release; public HTML/JS/CSS/worklet/service-worker assets
+  matched it by SHA-256. The three later commits above and this wrap-up have **not**
+  been pushed/deployed. Remote/live state was not refreshed during this wrap-up;
+  fetch and check it before any subsequent release.
+- Marcus explicitly requires this wrap-up to be committed **locally only**: no push,
+  deploy, or settings changes. The earlier release approval applied to `f37816a`,
+  not the new local commits. Claude should review the release instructions below
+  and obtain Marcus's explicit OK before pushing.
+- No application code changed after `0c5b301` in this follow-up. Only the worklog
+  and this handoff changed. All requested real-audio A/B checks passed by owner
+  report; no fallback replacement was needed. The automated suite is now 47/47.
+- `codex/session-safety-and-soniox-auth` was retained at the previous release.
+  Continue from current `main`, not that older implementation branch.
+- `docs/WORKLOG.md` is chronological. Its earlier local-only/unverified statements
+  are historical; the later entries below resolve the specifically tested items.
 
-## Everything changed since fc4e164
+## Original implementation changes from fc4e164 through f37816a
+
+Claude's later fixes and this session's follow-up are recorded separately below.
 
 ### 1. Session cancellation and cleanup
 
@@ -148,8 +155,9 @@ Provider references:
 
 ### Automated/local evidence
 
-- Latest release gate: **45/45 tests passed** on Node **24.15.0**; Node 20 was not
-  requalified. JavaScript syntax checks and `git diff --check` passed.
+- Deployed `f37816a` release gate: **45/45 tests passed** on Node **24.15.0**;
+  Node 20 was not requalified. JavaScript syntax checks and `git diff --check`
+  passed. The current local suite is 47/47 after Claude's two additional tests.
 - Initial 29 tests: baseline `fc4e164` had 3 passes, 24 failures, 2 timeouts;
   the fixed implementation passed all 29.
 - Translation-matching additions: 16 focused tests, for a total of 45. Against
@@ -190,7 +198,8 @@ Marcus entered his own Soniox key directly into the local app and reported:
 
 These are explicit owner reports, not independently inspected wire evidence. They
 preceded the font/matching changes. Marcus later approved the font sizes visually;
-**the new translation matcher has not had a new real-audio/provider test**.
+At that stage, the new translation matcher had not had a new real-audio/provider
+test. The follow-up A/B results below now qualify the specifically tested cases.
 No real transcript or key was copied into Git or this documentation.
 
 ## Invariants and decisions to preserve
@@ -213,42 +222,116 @@ No existing privacy or architecture invariant was changed:
 - Any later privacy-impacting change needs Marcus's approval and consistent wording.
   Do not touch DNS, hosting/repository settings, or deploy without his explicit OK.
 
+## Changes and live qualification since 0c5b301
+
+No application changes were made. Codex read Claude's review and follow-up records,
+confirmed the three-commit local/deployed boundary, reran **47/47 tests on Node
+24.15.0**, checked ports, and started `npm start` on previously free port 5173.
+Marcus tested the latest local code in Chrome at `http://localhost:5173/`, outside
+`#demo`; the initial observed language pair was English/Japanese.
+
+Owner-reported results:
+
+| Check | Result |
+| --- | --- |
+| A1: two/three sentences in one turn | Whole translation stayed with the correct speaker's turn. Self-interjection also seemed fine. |
+| A2: two distinct voices speaking the same language | Separate speaker labels; each translation stayed with its speaker, including the first speaker's final words. |
+| A3: long speech | Marcus reported it seemed fine. No measured duration, chunk length, or throughput was supplied. |
+| A4: requested brief Wi-Fi interruption | Automatic reconnect, earlier transcript preserved, new speech translated again. Audio lost during the outage was not measured. |
+| B: restricted-key fallback | A test key with real-time STT on and Temporary API keys off connected and translated successfully. Marcus restored his normal key and deleted the test key. |
+
+These are owner reports, not assistant-inspected HTTP/WebSocket evidence. No keys,
+raw headers/network exports, or real transcript text were collected or committed.
+The restricted-key result qualifies the tested key format/environment, not every
+possible long-lived-key format. Leave the existing HTTP 403 fallback in place;
+the conditional proposal to replace it with a permissions message was not needed.
+Keep the accepted best-effort matching policy, no unconfirmed-speaker UI, and the
+existing endpoint/diarization/finalization tradeoff.
+
+The previous unresolved keyboard and phone-layout findings were fixed by Claude
+**before** this follow-up baseline:
+
+- `e78cbc6`: actual disabled language/swap/source controls, handler guards and picker
+  restoration during non-idle states, plus `aria-disabled`. Two regression tests;
+  Claude reported each protection's removal fails one test.
+- `0c5b301`: bottom-centre Save pill in phone face-to-face mode, feed clearance via
+  `:has`, Save visibility before bottom-scroll calculation, in-bounds seam hairline
+  fixing horizontal overflow/phone zoom-out, and tighter header below 340 px.
+  Claude's recorded Chrome checks cover 320/360/375/390 px, light/dark, and desktop.
+- Codex reran the 47 tests but did not independently repeat Claude's entire layout
+  or keyboard browser matrix. CSS is not covered by the Node harness.
+
 ## Remaining issues and suggested next steps
 
-1. **Medium: keyboard session locking.** `public/styles.css:282` disables pointer
-   interaction with language/source controls during a session, but does not disable
-   keyboard use. A keyboard change can update displayed preferences while the active
-   session retains its old configuration. Next fix: enforce state in handlers and
-   actual disabled controls, then test keyboard behavior and focus.
-2. **Medium, conditional: optional shared-server credit exposure.** `server.js:65`
-   issues temporary keys without authentication/rate limiting; `server.js:100` listens
-   beyond localhost by default. Relevant when running the server with a key on a
-   reachable network, not the static GitHub Pages deployment. Confirm intended local
-   versus public hosting with Marcus before choosing an access-control model.
-3. **Matching is still best-effort.** `public/app.js:453` onward. Next qualify real
-   multi-speaker/multi-sentence conversations with delayed translations and network
-   reconnects, without exporting real transcripts or exposing keys. Include cases
-   where translation merges/splits sentences. Preserve the accepted fallback policy.
-   Matching now scans the full active epoch; long-session performance is unmeasured.
-4. **Low: phone header overlap.** At 390 px in idle split/room mode, Save transcript
-   can overlap the source selector (`public/styles.css:823`). Existing CSS, not
-   introduced or fixed here. Check shorter phone heights when addressing it.
-5. **Qualification gaps:** real meeting-tab capture and permission-denial UI, Edge,
-   live network-failure reconnect, explicit pop-out pause/resume, offline install/
-   updates, sub-path deployment, and Node 20 execution. Confirm connection subprotocols
-   and absence of `api_key` from the first frame privately; do not share raw headers,
-   keys, or transcript-bearing network exports. Public deployment checks verified
-   assets and Actions success only, not a post-deploy paid session.
-6. **Preview cleanup:** the owner's local live-test preview on port 5174 and font
-   preview on port 5184 were deliberately left available; last known font URL was
-   `http://127.0.0.1:5184/#demo`. Their current process/tab state was not rechecked
-   during wrap-up. The temporary matching preview on 5194 was stopped and its tab
-   closed. Preserve any owner transcript/tab until he is ready to discard it.
+1. **Optional shared-server credit exposure remains unchanged.** `server.js`
+   issues temporary keys without authentication/rate limiting when configured with
+   a server key; it listens beyond loopback by default. This is separate from static
+   GitHub Pages. Do not implement hardening until Marcus chooses the intended
+   local/public hosting model.
+2. **Matching remains best-effort.** The latest real-audio checks above passed, but
+   missing/unmatched speaker metadata, translation merging/splitting sentences,
+   abbreviations, and unusually delayed streams can still misattribute text.
+   Full-epoch scans and retained transcript growth have not had measured long-session
+   performance testing. These investigations wait for Marcus's direction.
+3. **Restricted-key compatibility is partially qualified.** The direct-key fallback
+   succeeded in the owner's test. Browser protocol entries still require valid token
+   characters. No claim is made about every key format or inspected wire-level 403.
+   Do not ask for or log actual key values to investigate this.
+4. **Other qualification gaps remain:** real meeting-tab capture and permission-
+   denial UI, Edge, explicit live pop-out pause/resume, offline install/update behavior,
+   sub-path deployment, Node 20 execution, other network-failure scenarios, and exact
+   connection-subprotocol/start-frame inspection. Current tests used Node 24.15.0;
+   app-level live success does not establish each of these checks individually.
+5. **Local caching can hide changes.** Earlier preview testing saw fresh JS mixed
+   with stale HTML/CSS. Use a fresh test origin or verify/reload assets before
+   concluding a UI fix failed. Preserve the owner's saved key and transcript.
 
-Recommended order: keyboard lock, owner-directed real matching/reconnect checks,
-phone overlap, then server hardening if shared hosting is wanted. Avoid expanding
-scope to dependencies, endpoint timing, or forced early finalization to solve
-alignment; that changes the diarization tradeoff and needs separate evaluation.
+No new bug fix is proposed from these successful A/B results. Next immediate action
+is Claude's release review, then a push only after Marcus explicitly authorizes it.
+All other remaining work waits for his decision.
+
+## Preview server status at this wrap-up
+
+Checked listener state on October 16, 2026; all three remain running and were left
+untouched. PIDs are observations, not permanent identifiers: recheck ownership
+before any later cleanup, and do not use broad process-kill commands.
+
+| Port / address | Process observed | Purpose and handling |
+| --- | --- | --- |
+| `http://localhost:5173/` | Node PID `71303`, TCP `*:5173` | Started by Codex with `npm start` for the requested latest-code live tests. Left running; the app can load optional server configuration from `.env`, whose contents were not inspected. |
+| `http://127.0.0.1:5174/` | Python PID `66981`, loopback only | Existing static preview; Marcus explicitly asked to leave it up. |
+| `http://127.0.0.1:5184/#demo` | Python PID `67882`, loopback only | Existing font/demo preview; Marcus explicitly asked to leave it up. |
+
+Do not reload/close an owner transcript tab or stop these servers without his
+instruction. Browser connection changed during this follow-up; the available actual
+Chrome connection was used to open the test page. Later in-app-browser ambient state
+was not treated as proof that the live tests ran in a different browser. Live results
+and tested Chrome environment are attributed to Marcus's reports, as above.
+
+## Instructions for Claude to handle push/deployment
+
+1. Read this handoff and the newest worklog entries. Verify current branch, clean
+   working tree, and the local wrap-up commit hash. Only documentation changed since
+   `0c5b301`; all four local commits should be included in the prospective push.
+2. Fetch origin without pushing. Inspect `origin/main..main` and verify origin's
+   current state instead of relying on the tracking snapshot above. Expected remote
+   base is `f37816a`. If it moved, reconcile/review the difference and rerun affected
+   checks; never force-push or discard owner changes.
+3. Run `npm test` (expected 47/47), `git diff --check`, and inspect the release diff.
+   Retain the recorded owner live results and their limits. Do not access keys or
+   collect real transcript content for release bookkeeping.
+4. Summarize the exact commits and ask Marcus for explicit approval to push/deploy.
+   This handoff is release guidance, not approval to push yet. Do not change DNS,
+   Pages/repository settings, workflow, or secrets.
+5. After approval, push `main` normally to origin. No build or manual deployment is
+   needed: `.github/workflows/pages.yml` publishes `public/` on each main push.
+6. Find the Pages workflow run for that exact pushed SHA, wait for success, and
+   report its URL. Then verify live `index.html`, `app.js`, `styles.css`,
+   `pcm-worklet.js`, and `sw.js` match the local release (e.g. SHA-256 comparisons).
+   Deployment success/assets are not another paid audio session. Report any failure
+   without silently changing settings or rolling back unrelated work.
+7. Record the release result in the worklog, report the deployed SHA and any remaining
+   limits, and preserve the requested preview servers unless Marcus says otherwise.
 
 ## Commit map since baseline
 
@@ -261,7 +344,11 @@ alignment; that changes the diarization tradeoff and needs separate evaluation.
 | `621879e` | Font verification and preview record |
 | `54f0059` | Delayed translation matching and 16 additional tests |
 | `c154302` | Matching baseline/mutation/Chrome evidence |
-| `f37816a` | Release authorization and final validation; deployed main |
+| `f37816a` | Release authorization and final validation; last verified deployed main |
+| `0b7e362` | Previous handoff and release verification; local only |
+| `e78cbc6` | Claude: keyboard session lock and two tests; local only |
+| `0c5b301` | Claude: phone Save, overflow/zoom-out and 320 px fixes; local only |
 
-The next documentation-only commit contains this handoff and the final worklog
-entry. It is intentionally not part of the deployed release.
+The next local documentation-only commit updates this handoff and the worklog with
+the follow-up above. It is not part of the deployed release; Marcus receives its
+exact hash in the wrap-up reply.
