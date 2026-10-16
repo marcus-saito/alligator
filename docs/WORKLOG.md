@@ -206,3 +206,28 @@
 - Files touched for release bookkeeping: `docs/WORKLOG.md` only; this entry is in
   the final release commit following `c154302`. Earlier per-change commits and
   verification limitations are recorded above. No `docs/HANDOFF.md` was requested.
+
+## 2026-10-16 — Release result and wrap-up handoff
+
+- Release completed: `main` was fast-forwarded and pushed to
+  `f37816acbe07fd765385208b100693cfb1994b11`. GitHub Pages run
+  <https://github.com/marcus-saito/alligator/actions/runs/38858835902> succeeded.
+  Public `index.html`, `app.js`, `styles.css`, `pcm-worklet.js`, and `sw.js` returned
+  HTTP 200 and matched the local release by SHA-256. No post-deploy real audio test
+  was performed. This completes the preceding release plan.
+- Marcus requested wrap-up and a handoff for the original Claude session. Created
+  `docs/HANDOFF.md` covering all changes since `fc4e164`, the deployed/local commit
+  boundary, automated/baseline/mutation/Chrome/owner evidence, unchanged invariants,
+  accepted best-effort matching, unresolved findings, qualification gaps, preview
+  resources, and suggested next steps.
+- Files touched: `docs/HANDOFF.md` and `docs/WORKLOG.md` only. Cross-checked against
+  the actual commit log and diff from `fc4e164`, current implementation locations,
+  prior test results and owner reports, and the observed deployment result.
+  `git diff --check` passed. Application tests were not repeated for prose-only work;
+  the final application/release gate remains 45/45 on Node 24.15.0.
+- Decision: commit the handoff locally on `main`, without another push or Pages
+  deployment. The exact documentation commit is supplied in the wrap-up reply and
+  discoverable with `git log -1 --format=%H -- docs/HANDOFF.md`. No application code,
+  settings, secrets, real transcripts, or owner preview resources were changed.
+- Open questions are collected in the handoff; no task implementation remains
+  pending in this session. Future fixes or deployment require a new owner request.
